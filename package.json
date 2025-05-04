@@ -18,7 +18,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@longrun/turtle": "0.0.58",
+    "@longrun/turtle": "0.0.59",
     "@modelcontextprotocol/sdk": "^1.9.0",
     "@solana/pay": "^0.2.5",
     "@solana/web3.js": "^1.98.1",

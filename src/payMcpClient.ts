@@ -85,17 +85,17 @@ export class PayMcpClient implements FetchLike {
     throw new Error(`Expected redirect response from authorization URL, got ${response.status}`);
   }
 
-  fetch = async <T = any>(
+  fetch = async (
     url: string,
     init?: {
       method?: string;
       headers?: Record<string, string>;
       body?: any;
     }
-  ): Promise<T> => {
+  ): Promise<Response> => {
     try {
       // Try to fetch the resource
-      return await this.oauthClient.fetch<T>(url, init);
+      return await this.oauthClient.fetch(url, init);
     } catch (error: unknown) {
       // If we get an OAuth authentication required error, handle it
       if (error instanceof OAuthAuthenticationRequiredError) {
@@ -107,7 +107,7 @@ export class PayMcpClient implements FetchLike {
         await this.oauthClient.handleCallback(redirectUrl);
         
         // Retry the request once - we should be auth'd now
-        return await this.oauthClient.fetch<T>(url, init);
+        return await this.oauthClient.fetch(url, init);
       }
       
       // If it's not an authentication error, rethrow

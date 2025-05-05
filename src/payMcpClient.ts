@@ -1,5 +1,6 @@
-import type { PaymentMaker} from './types.js';
-import { FetchLike, OAuthClient, OAuthAuthenticationRequiredError, OAuthClientDb } from '@longrun/turtle';
+import type { PaymentMaker, FetchLike } from './types.js';
+import { OAuthClient, OAuthAuthenticationRequiredError } from './oauthClient.js';
+import { OAuthClientDb } from './oauthClientDb.js';
 import { BigNumber } from 'bignumber.js';
 
 export class PayMcpClient implements FetchLike {

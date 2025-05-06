@@ -1,7 +1,7 @@
-import * as oauth from 'oauth4webapi'
-import { URL } from 'url'
-import { OAuthClientDb, ClientCredentials, PKCEValues } from './oauthClientDb'
-import { FetchLike } from './types'
+import * as oauth from 'oauth4webapi';
+import { URL } from 'url';
+import { OAuthClientDb, ClientCredentials, PKCEValues } from './oauthClientDb';
+import { FetchLike } from './types';
 
 export class OAuthAuthenticationRequiredError extends Error {
   constructor(

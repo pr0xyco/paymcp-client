@@ -2,7 +2,7 @@ import { Database } from 'sqlite3'
 import { promisify } from 'util'
 import path from 'path'
 import fs from 'fs'
-import { DEFAULT_ENCRYPTION_KEY_ENV_VAR, encrypt, decrypt } from './crypto-util.js'
+import { DEFAULT_ENCRYPTION_KEY_ENV_VAR, encrypt, decrypt } from '@longrun/crypto-utils/src/index'
 
 /**
  * Type definition for client credentials

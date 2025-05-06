@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { localhostOnly, requireBearerAuth, requireOAuthUser } from '../src/auth.js';
+import { requireOAuthUser } from '../src/auth.js';
 import * as authOAuthHelpers from '../src/authOAuthHelpers.js';
 import crypto from 'crypto';
 import httpMocks from 'node-mocks-http';

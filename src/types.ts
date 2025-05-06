@@ -4,3 +4,14 @@ export interface PaymentMaker {
   makePayment: (amount: BigNumber, currency: string, receiver: string) => Promise<string>;
   signBySource: (requestId: string, message: string) => Promise<string>;
 }
+
+export interface FetchLike {
+  fetch(
+    url: string,
+    init?: {
+      method?: string;
+      headers?: Record<string, string>;
+      body?: any;
+    }
+  ): Promise<Response>;
+}

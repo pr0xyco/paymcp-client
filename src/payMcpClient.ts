@@ -3,7 +3,7 @@ import { OAuthClient, OAuthAuthenticationRequiredError } from './oauthClient.js'
 import { OAuthClientDb } from './oauthClientDb.js';
 import { BigNumber } from 'bignumber.js';
 
-export class PayMcpClient implements FetchLike {
+export class PayMcpClient {
   private oauthClient: OAuthClient;
   private paymentMakers: Map<string, PaymentMaker>;
 
@@ -86,14 +86,7 @@ export class PayMcpClient implements FetchLike {
     throw new Error(`Expected redirect response from authorization URL, got ${response.status}`);
   }
 
-  fetch = async (
-    url: string,
-    init?: {
-      method?: string;
-      headers?: Record<string, string>;
-      body?: any;
-    }
-  ): Promise<Response> => {
+  fetch: FetchLike = async (url, init) => {
     try {
       // Try to fetch the resource
       return await this.oauthClient.fetch(url, init);

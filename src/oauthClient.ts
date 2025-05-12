@@ -14,17 +14,17 @@ export class OAuthAuthenticationRequiredError extends Error {
   }
 }
 
-export class OAuthClient implements FetchLike {
+export class OAuthClient {
   private db: OAuthClientDb;
   private allowInsecureRequests = process.env.NODE_ENV === 'development';
   private callbackUrl: string;
-  private fetchFn: FetchLike["fetch"];
+  private fetchFn: FetchLike;
   private strict: boolean;
   // Whether this is a public client, which is incapable of keeping a client secret
   // safe, or a confidential client, which can.
   private isPublic: boolean;
 
-  constructor(db: OAuthClientDb, callbackUrl: string, isPublic: boolean, fetchFn: FetchLike["fetch"] = fetch, strict: boolean = true) {
+  constructor(db: OAuthClientDb, callbackUrl: string, isPublic: boolean, fetchFn: FetchLike = fetch, strict: boolean = true) {
     this.db = db;
     this.callbackUrl = callbackUrl;
     this.isPublic = isPublic;
@@ -353,14 +353,7 @@ export class OAuthClient implements FetchLike {
     return res === url ? null : res;
   }
 
-  fetch = async (
-    url: string,
-    init?: {
-      method?: string;
-      headers?: Record<string, string>;
-      body?: any;
-    }
-  ): Promise<Response> => {
+  fetch: FetchLike = async (url, init) => {
     console.log(`Making ${init?.method || 'GET'} request to ${url}`);
     
     // Get the access token from the database

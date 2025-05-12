@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import fetchMock, { FetchMock } from 'fetch-mock';
 import { FetchLike } from '../src/types';
 
-function oauthClient(fetchFn: FetchLike["fetch"], db?: OAuthClientDb, isPublic: boolean = false, strict: boolean = true, callbackUrl: string = 'https://example.com/callback') {
+function oauthClient(fetchFn: FetchLike, db?: OAuthClientDb, isPublic: boolean = false, strict: boolean = true, callbackUrl: string = 'https://example.com/callback') {
   return new OAuthClient(
     db ?? new SqliteOAuthClientDb(':memory:'),
     callbackUrl,

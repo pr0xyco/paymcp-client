@@ -22,6 +22,12 @@ export type PKCEValues = {
   resourceServerUrl: string
 };
 
+export type AccessToken = {
+  accessToken: string,
+  refreshToken?: string,
+  expiresAt?: number
+};
+
 /**
  * Interface for the database that stores OAuth-related data
  */
@@ -65,11 +71,7 @@ export interface OAuthClientDb {
    * @param resourceServerUrl The URL of the resource server
    * @returns The access token or null if not found or expired
    */
-  getAccessToken(resourceServerUrl: string): Promise<{
-    accessToken: string,
-    refreshToken?: string,
-    expiresAt?: Date
-  } | null>;
+  getAccessToken(resourceServerUrl: string): Promise<AccessToken | null>;
 
   /**
    * Save the access token for a specific resource server
@@ -78,11 +80,7 @@ export interface OAuthClientDb {
    */
   saveAccessToken(
     resourceServerUrl: string,
-    token: {
-      accessToken: string,
-      refreshToken?: string,
-      expiresAt?: Date
-    }
+    token: AccessToken
   ): Promise<void>;
 
   /**
@@ -217,11 +215,7 @@ export class SqliteOAuthClientDb implements OAuthClientDb {
     );
   }
 
-  getAccessToken = async (resourceServerUrl: string): Promise<{
-    accessToken: string,
-    refreshToken?: string,
-    expiresAt?: Date
-  } | null> => {
+  getAccessToken = async (resourceServerUrl: string): Promise<AccessToken | null> => {
     await this.ensureInitialized();
     const row = await this.get(
       'SELECT encrypted_access_token, encrypted_refresh_token, expires_at FROM oauth_access_tokens WHERE resource_server_url = ?',
@@ -232,17 +226,13 @@ export class SqliteOAuthClientDb implements OAuthClientDb {
     return {
       accessToken: decrypt(row.encrypted_access_token, this.encryptionKey),
       refreshToken: row.encrypted_refresh_token ? decrypt(row.encrypted_refresh_token, this.encryptionKey) : undefined,
-      expiresAt: row.expires_at ? new Date(row.expires_at) : undefined
+      expiresAt: row.expires_at ? parseInt(row.expires_at) : undefined
     };
   }
 
   saveAccessToken = async (
     resourceServerUrl: string,
-    token: {
-      accessToken: string,
-      refreshToken?: string,
-      expiresAt?: Date
-    }
+    token: AccessToken
   ): Promise<void> => {
     await this.ensureInitialized();
     await this.run(
@@ -251,7 +241,7 @@ export class SqliteOAuthClientDb implements OAuthClientDb {
         resourceServerUrl,
         encrypt(token.accessToken, this.encryptionKey),
         token.refreshToken ? encrypt(token.refreshToken, this.encryptionKey) : null,
-        token.expiresAt?.toISOString()
+        token.expiresAt?.toString()
       ]
     );
   }

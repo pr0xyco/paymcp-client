@@ -18,26 +18,54 @@ export class OAuthClient implements FetchLike {
   private db: OAuthClientDb;
   private allowInsecureRequests = process.env.NODE_ENV === 'development';
   private callbackUrl: string;
+  private fetchFn: FetchLike["fetch"];
+  private strict: boolean;
   // Whether this is a public client, which is incapable of keeping a client secret
   // safe, or a confidential client, which can.
   private isPublic: boolean;
 
-  constructor(db: OAuthClientDb, callbackUrl: string, isPublic: boolean) {
+  constructor(db: OAuthClientDb, callbackUrl: string, isPublic: boolean, fetchFn: FetchLike["fetch"] = fetch, strict: boolean = true) {
     this.db = db;
     this.callbackUrl = callbackUrl;
     this.isPublic = isPublic;
+    this.fetchFn = fetchFn;
+    this.strict = strict;
   }
 
   private getAuthorizationServer = async (resourceServerUrl: string): Promise<oauth.AuthorizationServer> => {
     console.log(`Fetching authorization server configuration for ${resourceServerUrl}`);
     
     try {
+      let authServerUrl: string | undefined = undefined;
       const resourceUrl = new URL(resourceServerUrl);
+
       const prmResponse = await oauth.resourceDiscoveryRequest(resourceUrl, {
+        [oauth.customFetch]: this.fetchFn,
         [oauth.allowInsecureRequests]: this.allowInsecureRequests
       });
-      const resourceServer = await oauth.processResourceDiscoveryResponse(resourceUrl, prmResponse);
-      const authServerUrl = resourceServer.authorization_servers?.[0];
+
+      const fallbackToRsAs = !this.strict && prmResponse.status === 404;
+
+      if (!fallbackToRsAs) {
+        const resourceServer = await oauth.processResourceDiscoveryResponse(resourceUrl, prmResponse);
+        authServerUrl = resourceServer.authorization_servers?.[0];
+      } else {
+        // Some older servers serve OAuth metadata from the MCP server instead of PRM data, 
+        // so if the PRM data isn't found, we'll try to get the AS metadata from the MCP server
+        console.log('Protected Resource Metadata document not found, looking for OAuth metadata on resource server');
+        // Trim off the path - OAuth metadata is also singular for a server and served from the root
+        const rsUrl = new URL(resourceServerUrl);
+        const rsAsUrl = rsUrl.protocol + '//' + rsUrl.host + '/.well-known/oauth-authorization-server';
+        // Don't use oauth4webapi for this, because these servers might be specifiying an issuer that is not
+        // themselves (in order to use a separate AS by just hosting the OAuth metadata on the MCP server)
+        //   This is against the OAuth spec, but some servers do it anyway
+        const rsAsResponse = await this.fetchFn(rsAsUrl);
+        if (rsAsResponse.status === 200) {
+          const rsAsBody = await rsAsResponse.json();
+          authServerUrl = rsAsBody.issuer;
+        }
+      }
+
       if (!authServerUrl) {
         throw new Error('No authorization_servers found in protected resource metadata');
       }
@@ -48,7 +76,8 @@ export class OAuthClient implements FetchLike {
       const issuer = new URL(authServerUrl);
       const response = await oauth.discoveryRequest(issuer, {
         algorithm: 'oauth2',
-        [oauth.allowInsecureRequests]: this.allowInsecureRequests
+        [oauth.customFetch]: this.fetchFn,
+        [oauth.allowInsecureRequests]: this.allowInsecureRequests,
       });
       const authorizationServer = await oauth.processDiscoveryResponse(issuer, response);
       
@@ -95,6 +124,7 @@ export class OAuthClient implements FetchLike {
       authorizationServer,
       clientMetadata,
       {
+        [oauth.customFetch]: this.fetchFn,
         [oauth.allowInsecureRequests]: this.allowInsecureRequests
       }
     );
@@ -144,6 +174,16 @@ export class OAuthClient implements FetchLike {
     return { codeVerifier, codeChallenge, state };
   }
 
+  private getClientCredentials = async (resourceServerUrl: string, authorizationServer: oauth.AuthorizationServer): Promise<ClientCredentials> => {
+    let credentials = await this.db.getClientCredentials(resourceServerUrl);
+    // If no credentials found, register a new client
+    if (!credentials) {
+      console.log(`No client credentials found for ${resourceServerUrl}, attempting dynamic client registration`);
+      credentials = await this.registerClient(authorizationServer, resourceServerUrl);
+    }
+    return credentials;
+  }
+
   private getAuthorizeUrl = async (
     authorizationServer: oauth.AuthorizationServer, 
     credentials: ClientCredentials, 
@@ -161,20 +201,14 @@ export class OAuthClient implements FetchLike {
     return authorizationUrl;
   }
 
-  private requestAuthorization = async (resourceServerUrl: string): Promise<string> => {
+  private requestAuthorization = async (resourceServerUrl: string): Promise<void> => {
     console.log(`Requesting authorization for ${resourceServerUrl}`);
     
     // Get the authorization server configuration
     const authorizationServer = await this.getAuthorizationServer(resourceServerUrl);
     
     // Get the client credentials
-    let credentials = await this.db.getClientCredentials(resourceServerUrl);
-    
-    // If no credentials found, register a new client
-    if (!credentials) {
-      console.log(`No client credentials found for ${resourceServerUrl}, attempting dynamic client registration`);
-      credentials = await this.registerClient(authorizationServer, resourceServerUrl);
-    }
+    let credentials = await this.getClientCredentials(resourceServerUrl, authorizationServer);
     
     // Generate PKCE values
     const { codeChallenge, state } = await this.generatePKCE(resourceServerUrl);
@@ -191,22 +225,12 @@ export class OAuthClient implements FetchLike {
     throw new OAuthAuthenticationRequiredError(state, resourceServerUrl, authorizationUrl);
   }
 
-  private exchangeCodeForToken = async (
-    authResponse: URLSearchParams,
-    state: string,
-    pkceValues: PKCEValues,
-    authorizationServer: oauth.AuthorizationServer
-  ): Promise<string> => {
-    console.log(`Exchanging code for tokens with state: ${state}`);
-    
-    const { codeVerifier, resourceServerUrl } = pkceValues;
-    
-    // Get the client credentials
-    const credentials = await this.db.getClientCredentials(resourceServerUrl);
-    if (!credentials) {
-      throw new Error(`No client credentials found for ${resourceServerUrl}`);
-    }
-    
+  private makeTokenRequestAndClient = async (
+    authorizationServer: oauth.AuthorizationServer,
+    credentials: ClientCredentials,
+    codeVerifier: string,
+    authResponse: URLSearchParams
+  ): Promise<[Response, oauth.Client]> => {
     // Create the client configuration
     const client: oauth.Client = { 
       client_id: credentials.clientId,
@@ -222,8 +246,7 @@ export class OAuthClient implements FetchLike {
       // Create the client authentication method
       clientAuth = oauth.ClientSecretPost(credentials.clientSecret);
     }
-    
-    // Make the token request
+
     const response = await oauth.authorizationCodeGrantRequest(
       authorizationServer,
       client,
@@ -231,9 +254,33 @@ export class OAuthClient implements FetchLike {
       authResponse,
       credentials.redirectUri,
       codeVerifier, {
+        [oauth.customFetch]: this.fetchFn,
         [oauth.allowInsecureRequests]: this.allowInsecureRequests
       }
     );
+    return [response, client];
+  }
+
+  private exchangeCodeForToken = async (
+    authResponse: URLSearchParams,
+    state: string,
+    pkceValues: PKCEValues,
+    authorizationServer: oauth.AuthorizationServer
+  ): Promise<string> => {
+    console.log(`Exchanging code for tokens with state: ${state}`);
+    
+    const { codeVerifier, resourceServerUrl } = pkceValues;
+    
+    // Get the client credentials
+    let credentials = await this.getClientCredentials(resourceServerUrl, authorizationServer);
+    
+    let [response, client] = await this.makeTokenRequestAndClient(authorizationServer, credentials, codeVerifier, authResponse);
+
+    if(response.status === 403 || response.status === 401) {
+      console.log(`Bad response status exchanging code for token: ${response.statusText}. Could be due to bad client credentials - trying to re-register`);
+      credentials = await this.registerClient(authorizationServer, resourceServerUrl);
+      [response, client] = await this.makeTokenRequestAndClient(authorizationServer, credentials, codeVerifier, authResponse);
+    }
     
     // Process the token response
     const result = await oauth.processAuthorizationCodeResponse(
@@ -247,7 +294,7 @@ export class OAuthClient implements FetchLike {
       accessToken: result.access_token,
       refreshToken: result.refresh_token,
       expiresAt: result.expires_in 
-        ? new Date(Date.now() + result.expires_in * 1000) 
+        ? Date.now() + result.expires_in * 1000
         : undefined
     });
     
@@ -274,10 +321,7 @@ export class OAuthClient implements FetchLike {
     const authorizationServer = await this.getAuthorizationServer(pkceValues.resourceServerUrl);
 
     // Get the client credentials
-    const credentials = await this.db.getClientCredentials(pkceValues.resourceServerUrl);
-    if (!credentials) {
-      throw new Error(`No client credentials found for ${pkceValues.resourceServerUrl}`);
-    }
+    const credentials = await this.getClientCredentials(pkceValues.resourceServerUrl, authorizationServer);
     
     // Create the client configuration
     const client: oauth.Client = { 
@@ -326,9 +370,8 @@ export class OAuthClient implements FetchLike {
     // If there's no token for the requested path, see if there's one for the parent
     while (!tokenData && parentPath){
       console.log(`No access token found for ${resourceServerUrl}, trying parent ${parentPath}`);
-      resourceServerUrl = parentPath;
-      tokenData = await this.db.getAccessToken(resourceServerUrl);
-      parentPath = OAuthClient.getParentPath(resourceServerUrl);
+      tokenData = await this.db.getAccessToken(parentPath);
+      parentPath = OAuthClient.getParentPath(parentPath);
     }
     if (!tokenData) {
       console.log(`No access token found for resource server ${resourceServerUrl}. Passing no authorization header.`);
@@ -341,25 +384,19 @@ export class OAuthClient implements FetchLike {
     
     // Make the request with the access token
     try {
-      const response = await fetch(url, {
+      const response = await this.fetchFn(url, {
         method: init?.method || 'GET',
         headers,
         body: init?.body
       });
       
-      if (!response.ok) {
-        // If we get a 401 Unauthorized error, the access token might be invalid
-        if (response.status === 401) {
-          console.log('Received 401 Unauthorized error, initiating OAuth flow');
+      if (response.status === 401) {
+        console.log('Received 401 Unauthorized error, initiating OAuth flow');
           
-          // Request authorization and throw specific error
-          // This will do some requests to get the authorization url 
-          // and then throw and error containing it
-          await this.requestAuthorization(resourceServerUrl);
-        }
-        
-        // For other errors, throw a standard error
-        throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+        // Request authorization and throw specific error
+        // This will do some requests to get the authorization url 
+        // and then throw and error containing it
+        await this.requestAuthorization(resourceServerUrl);
       }
       
       return response;

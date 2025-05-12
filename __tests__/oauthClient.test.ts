@@ -95,7 +95,7 @@ describe('oauthClient', () => {
       const db = new SqliteOAuthClientDb(':memory:');
       db.saveAccessToken('https://example.com/mcp', {
         accessToken: 'test-access-token',
-        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30)
+        expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30
       });
       const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 401);
       mockResourceServer(f, 'https://example.com', '/mcp');
@@ -115,7 +115,7 @@ describe('oauthClient', () => {
       // resources for both the /sse and /message endpoints
       db.saveAccessToken('https://example.com', {
         accessToken: 'test-access-token',
-        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30)
+        expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30
       });
       const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 401);
       mockResourceServer(f, 'https://example.com', '/mcp');

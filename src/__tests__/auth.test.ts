@@ -4,17 +4,20 @@ import crypto from 'crypto';
 import httpMocks from 'node-mocks-http';
 import { SqliteOAuthClientDb } from '../oauthClientDb.js';
 import * as oauth from 'oauth4webapi';
+import { OAuthResourceServerClient } from '../oauthResourceServerClient.js';
+import { mockResourceServer, mockAuthorizationServer } from './testHelpers';
+import fetchMock from 'fetch-mock';
 
 // Generate a proper encryption key for tests
-const TEST_ENCRYPTION_KEY = crypto.randomBytes(32).toString('base64');
+//const TEST_ENCRYPTION_KEY = crypto.randomBytes(32).toString('base64');
 
 describe('requireOAuthAuthUser', () => {
-  let db: SqliteOAuthClientDb;
-  const validToken = 'valid-test-token';
-  const userId = 'test-user';
-  const auth_server_url = 'http://127.0.0.1:3000';
+  //let db: SqliteOAuthClientDb;
+  //const validToken = 'valid-test-token';
+  //const userId = 'test-user';
+  //const auth_server_url = 'http://127.0.0.1:3000';
 
-  beforeEach(async () => {
+  /*beforeEach(async () => {
     // Create a real Sqlite model with in-memory database
     db = new SqliteOAuthClientDb(':memory:', TEST_ENCRYPTION_KEY);
     
@@ -39,13 +42,16 @@ describe('requireOAuthAuthUser', () => {
 
   afterEach(async () => {
     await db.close();
-  });
+  });*/
 
   it('should return undefined when no authorization header is present', async () => {
-    const req = httpMocks.createRequest();
-    const res = httpMocks.createResponse();
+    const { req, res } = httpMocks.createMocks();
+    const f = fetchMock.createInstance();
+    mockAuthorizationServer(f, 'https://paymcp.com');
+    const db = new SqliteOAuthClientDb(':memory:');
+    const client = new OAuthResourceServerClient('https://example.com', db, f.fetchHandler);
 
-    const fn = requireOAuthUser(auth_server_url, db);
+    const fn = requireOAuthUser(client);
     const user = await fn(req, res);
     expect(user).toBeUndefined();
     expect(res.statusCode).toEqual(401);

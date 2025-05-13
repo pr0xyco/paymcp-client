@@ -3,14 +3,14 @@ import { FetchLike, OAuthClientDb, TokenData } from './types';
 import { OAuthClient } from './oauthClient';
 
 export class OAuthResourceServerClient extends OAuthClient {
-  private authServerUrl: URL;
+  private authServerUrl: string;
 
   // It's not actually expected that we'll every use the redirect_uri for this client - 
   // it's just going to be used to call the introspection endpoint with the
   // client credentials - but the OAuth spec requires us to provide a redirect_uri
   private static dummyRedirectUrl = 'https://127.0.0.1';
 
-  constructor(authServerUrl: URL, db: OAuthClientDb, fetchFn: FetchLike = fetch, strict: boolean = true) {
+  constructor(authServerUrl: string, db: OAuthClientDb, fetchFn: FetchLike = fetch, strict: boolean = true) {
     super(db, OAuthResourceServerClient.dummyRedirectUrl, false, fetchFn, strict);
     this.authServerUrl = authServerUrl;
   }
@@ -30,9 +30,9 @@ export class OAuthResourceServerClient extends OAuthClient {
   }
 
   introspectToken = async (token: string, additionalParameters?: Record<string, string>): Promise<TokenData> => {
-    const authorizationServer = await this.getAuthorizationServer(this.authServerUrl);
+    const authorizationServer = await this.getAuthorizationServer(new URL(this.authServerUrl));
     // When introspecting a token, the "resource" server that we want credentials for is the auth server
-    const clientCredentials = await this.getClientCredentials(this.authServerUrl.toString(), authorizationServer);
+    const clientCredentials = await this.getClientCredentials(this.authServerUrl, authorizationServer);
 
     // Create a client for token introspection
     const client: oauth.Client = {

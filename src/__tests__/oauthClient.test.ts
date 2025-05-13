@@ -1,8 +1,8 @@
-import { OAuthClientDb, SqliteOAuthClientDb } from '../oauthClientDb';
+import { SqliteOAuthClientDb } from '../oauthClientDb';
 import { OAuthClient, OAuthAuthenticationRequiredError } from '../oauthClient';
 import { describe, it, expect } from 'vitest';
 import fetchMock from 'fetch-mock';
-import { FetchLike } from '../types';
+import { FetchLike, OAuthClientDb } from '../types';
 import { mockResourceServer, mockAuthorizationServer } from './testHelpers';
 
 function oauthClient(fetchFn: FetchLike, db?: OAuthClientDb, isPublic: boolean = false, strict: boolean = true, callbackUrl: string = 'https://example.com/callback') {

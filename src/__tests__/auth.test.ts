@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { requireOAuthUser } from '../auth.js';
-import * as authOAuthHelpers from '../authOAuthHelpers.js';
 import crypto from 'crypto';
 import httpMocks from 'node-mocks-http';
 import { SqliteOAuthClientDb } from '../oauthClientDb.js';
@@ -9,7 +8,7 @@ import * as oauth from 'oauth4webapi';
 // Generate a proper encryption key for tests
 const TEST_ENCRYPTION_KEY = crypto.randomBytes(32).toString('base64');
 
-describe('getOAuthAuthUser', () => {
+describe('requireOAuthAuthUser', () => {
   let db: SqliteOAuthClientDb;
   const validToken = 'valid-test-token';
   const userId = 'test-user';
@@ -113,5 +112,32 @@ describe('getOAuthAuthUser', () => {
     const user = await fn(req, res);
     expect(user).toBe(userId);
     expect(res.statusCode).toEqual(200);
+  });
+
+  it('should use stored credentials to call token endpoint on authorization server', async () => {
+    const req = httpMocks.createRequest({ headers: { authorization: `Bearer ${validToken}` } });
+    const res = httpMocks.createResponse();
+
+    const fn = requireOAuthUser(auth_server_url, db);
+    const user = await fn(req, res);
+    expect.fail();
+  });
+
+  it('should register client on authorization server if no credentials are stored', async () => {
+    const req = httpMocks.createRequest({ headers: { authorization: `Bearer ${validToken}` } });
+    const res = httpMocks.createResponse();
+
+    const fn = requireOAuthUser(auth_server_url, db);
+    const user = await fn(req, res);
+    expect.fail();
+  });
+
+  it('should re-register client on authorization server if token call responds with 401', async () => {
+    const req = httpMocks.createRequest({ headers: { authorization: `Bearer ${validToken}` } });
+    const res = httpMocks.createResponse();
+
+    const fn = requireOAuthUser(auth_server_url, db);
+    const user = await fn(req, res);
+    expect.fail();
   });
 }); 

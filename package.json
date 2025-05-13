@@ -1,6 +1,6 @@
 {
   "name": "@longrun/paymcp-client",
-  "version": "0.0.9",
+  "version": "0.0.11",
   "description": "PayMcp Client",
   "license": "MIT",
   "types": "./dist/index.d.ts",
@@ -22,16 +22,17 @@
     "@solana/pay": "^0.2.5",
     "@solana/web3.js": "^1.98.1",
     "@types/express": "^5.0.0",
+    "better-sqlite3": "^11.10.0",
     "bignumber.js": "^9.3.0",
     "bs58": "^6.0.0",
     "express": "^5.0.0",
     "node-mocks-http": "^1.17.2",
     "oauth4webapi": "^3.5.0",
-    "sqlite3": "^5.1.7",
     "tweetnacl": "^1.0.3",
     "tweetnacl-util": "^0.15.1"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.13.0",
     "fetch-mock": "^12.5.2",
     "tsx": "^4.19.2",

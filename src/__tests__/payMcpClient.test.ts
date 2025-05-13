@@ -1,10 +1,10 @@
-import { OAuthClientDb, SqliteOAuthClientDb } from '../src/oauthClientDb';
-import { OAuthClient, OAuthAuthenticationRequiredError } from '../src/oauthClient';
+import { OAuthClientDb, SqliteOAuthClientDb } from '../oauthClientDb';
+import { OAuthClient, OAuthAuthenticationRequiredError } from '../oauthClient';
 import { describe, it, expect } from 'vitest';
 import fetchMock from 'fetch-mock';
 import { mockResourceServer, mockAuthorizationServer } from './testHelpers';
-import { PayMcpClient } from '../src/payMcpClient';
-import { FetchLike } from '../src/types';
+import { PayMcpClient } from '../payMcpClient';
+import { FetchLike } from '../types';
 
 function payMcpClient(fetchFn: FetchLike, db?: OAuthClientDb, isPublic: boolean = false, strict: boolean = true) {
   return new PayMcpClient(

@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { requireOAuthUser } from '../src/auth.js';
-import * as authOAuthHelpers from '../src/authOAuthHelpers.js';
+import { requireOAuthUser } from '../auth.js';
+import * as authOAuthHelpers from '../authOAuthHelpers.js';
 import crypto from 'crypto';
 import httpMocks from 'node-mocks-http';
-import { SqliteOAuthClientDb } from '../src/oauthClientDb.js';
+import { SqliteOAuthClientDb } from '../oauthClientDb.js';
 import * as oauth from 'oauth4webapi';
 
 // Generate a proper encryption key for tests

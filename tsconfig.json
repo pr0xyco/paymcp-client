@@ -17,5 +17,5 @@
     }
   },
   "include": ["**/*.ts"],
-  "exclude": ["node_modules", "client", "dist", "__tests__"]
+  "exclude": ["node_modules", "dist"]
 } 

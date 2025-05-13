@@ -3,15 +3,15 @@ import { OAuthClient, OAuthAuthenticationRequiredError } from './oauthClient.js'
 import { OAuthClientDb } from './oauthClientDb.js';
 import { BigNumber } from 'bignumber.js';
 
-export class PayMcpClient implements FetchLike {
+export class PayMcpClient {
   private oauthClient: OAuthClient;
   private paymentMakers: Map<string, PaymentMaker>;
 
-  constructor(db: OAuthClientDb, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}) {
+  constructor(db: OAuthClientDb, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
     // We'll always use the paymcp://mcp redirect URI, because this client
     // should never actually require a callback. Instead, we detect the oauth
     // challenge, make a payment, and then directly invoke the oauth flow.
-    this.oauthClient = new OAuthClient(db, 'paymcp://mcp', isPublic);
+    this.oauthClient = new OAuthClient(db, 'paymcp://mcp', isPublic, fetchFn, strict);
     this.paymentMakers = new Map(Object.entries(paymentMakers));
   }
 
@@ -86,14 +86,7 @@ export class PayMcpClient implements FetchLike {
     throw new Error(`Expected redirect response from authorization URL, got ${response.status}`);
   }
 
-  fetch = async (
-    url: string,
-    init?: {
-      method?: string;
-      headers?: Record<string, string>;
-      body?: any;
-    }
-  ): Promise<Response> => {
+  fetch: FetchLike = async (url, init) => {
     try {
       // Try to fetch the resource
       return await this.oauthClient.fetch(url, init);

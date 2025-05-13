@@ -5,13 +5,8 @@ export interface PaymentMaker {
   signBySource: (requestId: string, message: string) => Promise<string>;
 }
 
-export interface FetchLike {
-  fetch(
-    url: string,
-    init?: {
-      method?: string;
-      headers?: Record<string, string>;
-      body?: any;
-    }
-  ): Promise<Response>;
-}
+export type FetchLike = (url: string, init?: {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: any;
+}) => Promise<Response>;

@@ -148,6 +148,7 @@ describe('oauthClient', () => {
       mockAuthorizationServer(f, 'https://paymcp.com')
         .modifyRoute('https://paymcp.com/register', {method: 'post', response: {status: 400, body: {}}});
 
+
       const client = oauthClient(f.fetchHandler);
       await expect(client.fetch('https://example.com/mcp')).rejects.not.toThrow(OAuthAuthenticationRequiredError);
       await expect(client.fetch('https://example.com/mcp')).rejects.toThrow('unexpected HTTP status code');
@@ -304,7 +305,7 @@ describe('oauthClient', () => {
 
       const token = await db.getAccessToken('https://example.com/mcp');
       expect(token).not.toBeNull();
-      expect(token?.accessToken).toEqual('test-access-token');
+      expect(token?.accessToken).toEqual('testAccessToken');
       expect(token?.expiresAt).toBeGreaterThan(Date.now());
     });
 

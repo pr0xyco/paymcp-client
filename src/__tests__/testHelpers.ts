@@ -19,7 +19,8 @@ export function mockAuthorizationServer(mock: FetchMock, baseUrl: string = 'http
     issuer: baseUrl,
     authorization_endpoint: `${baseUrl}/authorize`,
     registration_endpoint: `${baseUrl}/register`,
-    token_endpoint: `${baseUrl}/token`
+    token_endpoint: `${baseUrl}/token`,
+    introspection_endpoint: `${baseUrl}/introspect`
   });
   // Use the more verbose route method to name the route, so we can .modifyRoute it later
   mock.route({
@@ -28,8 +29,8 @@ export function mockAuthorizationServer(mock: FetchMock, baseUrl: string = 'http
     method: 'post',
     repeat: 1,
     response: {
-      access_token: 'test-access-token',
-      refresh_token: 'test-refresh-token',
+      access_token: 'testAccessToken',
+      refresh_token: 'testRefreshToken',
       token_type: 'Bearer',
       expires_in: 3600
     }
@@ -41,10 +42,22 @@ export function mockAuthorizationServer(mock: FetchMock, baseUrl: string = 'http
     response: {
       status: 201,
       body: {
-        client_id: 'test-client-id',
-        client_secret: 'test-client-secret',
+        client_id: 'testClientId',
+        client_secret: 'testClientSecret',
         client_secret_expires_at: Date.now() + 1000 * 60 * 60 * 24 * 30
       }
+    }
+  });
+  mock.route({
+    name: `${baseUrl}/introspect`,
+    url: `${baseUrl}/introspect`,
+    method: 'post',
+    repeat: 1,
+    response: {
+      active: true,
+      client_id: 'testClientId',
+      username: 'testUsername',
+      sub: 'testUser'
     }
   });
   return mock;

@@ -32,19 +32,19 @@ export class OAuthResourceServerClient extends OAuthClient {
   introspectToken = async (token: string, additionalParameters?: Record<string, string>): Promise<TokenData> => {
     const authorizationServer = await this.getAuthorizationServer(new URL(this.authServerUrl));
     // When introspecting a token, the "resource" server that we want credentials for is the auth server
-    const clientCredentials = await this.getClientCredentials(this.authServerUrl, authorizationServer);
+    let clientCredentials = await this.getClientCredentials(this.authServerUrl, authorizationServer);
 
     // Create a client for token introspection
-    const client: oauth.Client = {
+    let client: oauth.Client = {
       client_id: clientCredentials.clientId,
       token_endpoint_auth_method: 'client_secret_basic'
     };
     
     // Create client authentication method
-    const clientAuth = oauth.ClientSecretBasic(clientCredentials.clientSecret);
+    let clientAuth = oauth.ClientSecretBasic(clientCredentials.clientSecret);
     
     // Use oauth4webapi's built-in token introspection
-    const introspectionResponse = await oauth.introspectionRequest(
+    let introspectionResponse = await oauth.introspectionRequest(
       authorizationServer,
       client,
       clientAuth,
@@ -55,6 +55,27 @@ export class OAuthResourceServerClient extends OAuthClient {
         [oauth.allowInsecureRequests]: process.env.NODE_ENV === 'development'
       }
     );
+
+    if(introspectionResponse.status === 403 || introspectionResponse.status === 401) {
+      console.log(`Bad response status doing token introspection: ${introspectionResponse.statusText}. Could be due to bad client credentials - trying to re-register`);
+      clientCredentials = await this.registerClient(authorizationServer, this.authServerUrl);
+      client = {
+        client_id: clientCredentials.clientId,
+        token_endpoint_auth_method: 'client_secret_basic'
+      };
+      clientAuth = oauth.ClientSecretBasic(clientCredentials.clientSecret);
+      introspectionResponse = await oauth.introspectionRequest(
+        authorizationServer,
+        client,
+        clientAuth,
+        token,
+        { 
+          additionalParameters, 
+          [oauth.customFetch]: this.fetchFn, 
+          [oauth.allowInsecureRequests]: process.env.NODE_ENV === 'development'
+        }
+      );
+    }
     
     // Process the introspection response
     const tokenData = await oauth.processIntrospectionResponse(

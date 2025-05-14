@@ -1,6 +1,5 @@
-import type { PaymentMaker, FetchLike } from './types.js';
+import type { PaymentMaker, FetchLike, OAuthClientDb } from './types.js';
 import { OAuthClient, OAuthAuthenticationRequiredError } from './oauthClient.js';
-import { OAuthClientDb } from './oauthClientDb.js';
 import { BigNumber } from 'bignumber.js';
 
 export class PayMcpClient {

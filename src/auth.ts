@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
-import { OAuthClientDb } from './oauthClientDb.js';
-import { getAuthorizationServer, registerClient, introspectToken } from './authOAuthHelpers.js';
+import { OAuthResourceServerClient } from './oauthResourceServerClient.js';
 
 function getOp(req: Request): string {
   const isMessageEndpoint = req.path.endsWith('/message');
@@ -23,7 +22,7 @@ function getOp(req: Request): string {
 // opPrices is experimental: The names of tools that will be charged for if PayMcp is used. 
 // If not provided, all tools will be charged at the amount specified in the authorizationServerUrl's amount field
 // If any are provided, all unlisted tools will be charged at 0
-export function requireOAuthUser(authorizationServerUrl: string, db: OAuthClientDb, opPrices?: {[key:string]: number}): (req: Request, res: Response) => Promise<string | undefined> {
+export function requireOAuthUser(oauthClient: OAuthResourceServerClient, opPrices?: {[key:string]: number}): (req: Request, res: Response) => Promise<string | undefined> {
   return async (req: Request, res: Response): Promise<string | undefined> => {
     const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
     const protectedResourceMetadataUrl = `${protocol}://${req.host}/.well-known/oauth-protected-resource${req.path}`;
@@ -41,19 +40,6 @@ export function requireOAuthUser(authorizationServerUrl: string, db: OAuthClient
     const token = authHeader.substring(7);
     
     try {
-      // Get the authorization server metadata
-      const authServerUrl = new URL(authorizationServerUrl);
-      
-      // Get client credentials from the database
-      let clientCredentials = await db.getClientCredentials(authorizationServerUrl);
-
-      const authorizationServer = await getAuthorizationServer(authServerUrl);
-      
-      // If no credentials found, register a new client
-      if (!clientCredentials) {
-        clientCredentials = await registerClient(authorizationServer, authServerUrl, db);
-      }
-      
       // Perform token introspection
       let additionalParameters = {};
       const op = getOp(req);
@@ -70,14 +56,7 @@ export function requireOAuthUser(authorizationServerUrl: string, db: OAuthClient
         additionalParameters = { charge: opPrices[op] || 0 };
       }
       console.log('[auth] Introspecting token for op:', op, 'with additional parameters:', additionalParameters);
-      const introspectionResult = await introspectToken(
-        authorizationServer, 
-        clientCredentials, 
-        token,
-        // TODO: This makes turtle arguably PayMcp-aware, which opens the door to Hyrum's Law
-        // We should re-evaluate before open-sourcing
-        additionalParameters
-      );
+      const introspectionResult = await oauthClient.introspectToken(token, additionalParameters);
       
       if (!introspectionResult.active) {
         console.log('[auth] Token is not active');

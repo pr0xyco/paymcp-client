@@ -1,8 +1,8 @@
-import { OAuthClientDb, SqliteOAuthClientDb } from '../oauthClientDb';
+import { SqliteOAuthClientDb } from '../oauthClientDb';
 import { OAuthClient, OAuthAuthenticationRequiredError } from '../oauthClient';
 import { describe, it, expect } from 'vitest';
 import fetchMock from 'fetch-mock';
-import { FetchLike } from '../types';
+import { FetchLike, OAuthClientDb } from '../types';
 import { mockResourceServer, mockAuthorizationServer } from './testHelpers';
 
 function oauthClient(fetchFn: FetchLike, db?: OAuthClientDb, isPublic: boolean = false, strict: boolean = true, callbackUrl: string = 'https://example.com/callback') {
@@ -147,6 +147,7 @@ describe('oauthClient', () => {
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com')
         .modifyRoute('https://paymcp.com/register', {method: 'post', response: {status: 400, body: {}}});
+
 
       const client = oauthClient(f.fetchHandler);
       await expect(client.fetch('https://example.com/mcp')).rejects.not.toThrow(OAuthAuthenticationRequiredError);
@@ -304,7 +305,7 @@ describe('oauthClient', () => {
 
       const token = await db.getAccessToken('https://example.com/mcp');
       expect(token).not.toBeNull();
-      expect(token?.accessToken).toEqual('test-access-token');
+      expect(token?.accessToken).toEqual('testAccessToken');
       expect(token?.expiresAt).toBeGreaterThan(Date.now());
     });
 

@@ -1,7 +1,6 @@
 import * as oauth from 'oauth4webapi';
 import { URL } from 'url';
-import { OAuthClientDb, ClientCredentials, PKCEValues } from './oauthClientDb';
-import { FetchLike } from './types';
+import { FetchLike, OAuthClientDb, ClientCredentials, PKCEValues } from './types';
 
 export class OAuthAuthenticationRequiredError extends Error {
   constructor(
@@ -15,14 +14,14 @@ export class OAuthAuthenticationRequiredError extends Error {
 }
 
 export class OAuthClient {
-  private db: OAuthClientDb;
-  private allowInsecureRequests = process.env.NODE_ENV === 'development';
-  private callbackUrl: string;
-  private fetchFn: FetchLike;
-  private strict: boolean;
+  protected db: OAuthClientDb;
+  protected allowInsecureRequests = process.env.NODE_ENV === 'development';
+  protected callbackUrl: string;
+  protected fetchFn: FetchLike;
+  protected strict: boolean;
   // Whether this is a public client, which is incapable of keeping a client secret
   // safe, or a confidential client, which can.
-  private isPublic: boolean;
+  protected isPublic: boolean;
 
   constructor(db: OAuthClientDb, callbackUrl: string, isPublic: boolean, fetchFn: FetchLike = fetch, strict: boolean = true) {
     this.db = db;
@@ -32,7 +31,7 @@ export class OAuthClient {
     this.strict = strict;
   }
 
-  private getAuthorizationServer = async (resourceServerUrl: string): Promise<oauth.AuthorizationServer> => {
+  protected getAuthorizationServerUrl = async (resourceServerUrl: string): Promise<URL> => {
     console.log(`Fetching authorization server configuration for ${resourceServerUrl}`);
     
     try {
@@ -71,17 +70,22 @@ export class OAuthClient {
       }
 
       console.log(`Found authorization server URL: ${authServerUrl}`);
+      return new URL(authServerUrl);
+    } catch (error: any) {
+      console.log(`Error fetching authorization server configuration: ${error}`);
+      throw error;
+    }
+  }
       
+  protected getAuthorizationServer = async (authServerUrl: URL): Promise<oauth.AuthorizationServer> => {
+    try {
       // Now, get the authorization server metadata
-      const issuer = new URL(authServerUrl);
-      const response = await oauth.discoveryRequest(issuer, {
+      const response = await oauth.discoveryRequest(authServerUrl, {
         algorithm: 'oauth2',
         [oauth.customFetch]: this.fetchFn,
         [oauth.allowInsecureRequests]: this.allowInsecureRequests,
       });
-      const authorizationServer = await oauth.processDiscoveryResponse(issuer, response);
-      
-      console.log(`Retrieved authorization server configuration for ${resourceServerUrl}`);
+      const authorizationServer = await oauth.processDiscoveryResponse(authServerUrl, response);
       return authorizationServer;
     } catch (error: any) {
       console.log(`Error fetching authorization server configuration: ${error}`);
@@ -89,16 +93,7 @@ export class OAuthClient {
     }
   }
 
-  private registerClient = async (
-    authorizationServer: oauth.AuthorizationServer,
-    resourceServerUrl: string
-  ): Promise<ClientCredentials> => {
-    console.log(`Registering client with authorization server for ${resourceServerUrl}`);
-    
-    if (!authorizationServer.registration_endpoint) {
-      throw new Error('Authorization server does not support dynamic client registration');
-    }
-
+  protected getRegistrationMetadata = async (resourceServerUrl: string): Promise<Partial<oauth.OmitSymbolProperties<oauth.Client>>> => {
     let grantTypes = ['authorization_code', 'refresh_token'];
     if (!this.isPublic) {
       grantTypes.push('client_credentials');
@@ -110,7 +105,7 @@ export class OAuthClient {
     }
     
     // Create client metadata for registration
-    const clientMetadata: Partial<oauth.Client> = {
+    const clientMetadata = {
       // Required fields for public client
       redirect_uris: [this.callbackUrl], 
       response_types: ['code'], 
@@ -118,6 +113,20 @@ export class OAuthClient {
       token_endpoint_auth_method: tokenEndpointAuthMethod,
       client_name: `OAuth Client for ${resourceServerUrl}`,
     };
+    return clientMetadata;
+  }
+
+  protected registerClient = async (
+    authorizationServer: oauth.AuthorizationServer,
+    resourceServerUrl: string
+  ): Promise<ClientCredentials> => {
+    console.log(`Registering client with authorization server for ${resourceServerUrl}`);
+    
+    if (!authorizationServer.registration_endpoint) {
+      throw new Error('Authorization server does not support dynamic client registration');
+    }
+
+    const clientMetadata = await this.getRegistrationMetadata(resourceServerUrl);
     
     // Make the registration request
     const response = await oauth.dynamicClientRegistrationRequest(
@@ -147,7 +156,7 @@ export class OAuthClient {
     return credentials;
   }
 
-  private generatePKCE = async (resourceServerUrl: string): Promise<{
+  protected generatePKCE = async (resourceServerUrl: string): Promise<{
     codeVerifier: string;
     codeChallenge: string;
     state: string;
@@ -174,7 +183,7 @@ export class OAuthClient {
     return { codeVerifier, codeChallenge, state };
   }
 
-  private getClientCredentials = async (resourceServerUrl: string, authorizationServer: oauth.AuthorizationServer): Promise<ClientCredentials> => {
+  protected getClientCredentials = async (resourceServerUrl: string, authorizationServer: oauth.AuthorizationServer): Promise<ClientCredentials> => {
     let credentials = await this.db.getClientCredentials(resourceServerUrl);
     // If no credentials found, register a new client
     if (!credentials) {
@@ -184,7 +193,7 @@ export class OAuthClient {
     return credentials;
   }
 
-  private getAuthorizeUrl = async (
+  protected getAuthorizeUrl = async (
     authorizationServer: oauth.AuthorizationServer, 
     credentials: ClientCredentials, 
     codeChallenge: string, 
@@ -201,11 +210,12 @@ export class OAuthClient {
     return authorizationUrl;
   }
 
-  private requestAuthorization = async (resourceServerUrl: string): Promise<void> => {
+  protected requestAuthorization = async (resourceServerUrl: string): Promise<void> => {
     console.log(`Requesting authorization for ${resourceServerUrl}`);
     
     // Get the authorization server configuration
-    const authorizationServer = await this.getAuthorizationServer(resourceServerUrl);
+    const authServerUrl = await this.getAuthorizationServerUrl(resourceServerUrl);
+    const authorizationServer = await this.getAuthorizationServer(authServerUrl);
     
     // Get the client credentials
     let credentials = await this.getClientCredentials(resourceServerUrl, authorizationServer);
@@ -225,7 +235,7 @@ export class OAuthClient {
     throw new OAuthAuthenticationRequiredError(state, resourceServerUrl, authorizationUrl);
   }
 
-  private makeTokenRequestAndClient = async (
+  protected makeTokenRequestAndClient = async (
     authorizationServer: oauth.AuthorizationServer,
     credentials: ClientCredentials,
     codeVerifier: string,
@@ -261,7 +271,7 @@ export class OAuthClient {
     return [response, client];
   }
 
-  private exchangeCodeForToken = async (
+  protected exchangeCodeForToken = async (
     authResponse: URLSearchParams,
     state: string,
     pkceValues: PKCEValues,
@@ -318,7 +328,8 @@ export class OAuthClient {
     }
     
     // Get the authorization server configuration
-    const authorizationServer = await this.getAuthorizationServer(pkceValues.resourceServerUrl);
+    const authServerUrl = await this.getAuthorizationServerUrl(pkceValues.resourceServerUrl);
+    const authorizationServer = await this.getAuthorizationServer(authServerUrl);
 
     // Get the client credentials
     const credentials = await this.getClientCredentials(pkceValues.resourceServerUrl, authorizationServer);

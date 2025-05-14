@@ -380,5 +380,26 @@ describe('oauthClient', () => {
       const authCallbackUrl = `https://example.com/callback?code=test-code&state=test-state`;
       await client.handleCallback(authCallbackUrl);
     });
+
+
+    it('should throw if authorization server authorization endpoint returns an error', async () => {
+      // We can't save this - the authorization URL was constructed using the client_id, so 
+      // if the client registration is no longer valid, there's nothing we can do.
+      const db = new SqliteOAuthClientDb(':memory:');
+      db.savePKCEValues('test-state', {
+        codeVerifier: 'test-code-verifier',
+        codeChallenge: 'test-code-challenge',
+        resourceServerUrl: 'https://example.com/mcp'
+      });
+      const f = fetchMock.mockGlobal();
+      mockResourceServer(f, 'https://example.com', '/mcp');
+      mockAuthorizationServer(f, 'https://paymcp.com')
+  
+      // This is how the AS responds to a bad request, as per RFC 6749
+      // It just redirects back to the client without a code and with an error
+      const authCallbackUrl = `https://example.com/callback?state=test-state&error=invalid_request`;
+      const client = oauthClient(f.fetchHandler, db);
+      await expect(client.handleCallback(authCallbackUrl)).rejects.toThrow('authorization response from the server is an error');
+    });
   });
 });

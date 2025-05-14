@@ -5,6 +5,7 @@ import { BigNumber } from 'bignumber.js';
 export class PayMcpClient {
   private oauthClient: OAuthClient;
   private paymentMakers: Map<string, PaymentMaker>;
+  private fetchFn: FetchLike;
 
   constructor(db: OAuthClientDb, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
     // We'll always use the paymcp://mcp redirect URI, because this client
@@ -12,6 +13,7 @@ export class PayMcpClient {
     // challenge, make a payment, and then directly invoke the oauth flow.
     this.oauthClient = new OAuthClient(db, 'paymcp://mcp', isPublic, fetchFn, strict);
     this.paymentMakers = new Map(Object.entries(paymentMakers));
+    this.fetchFn = fetchFn;
   }
 
   private handleAuthFailure = async (oauthError: OAuthAuthenticationRequiredError): Promise<string> => {
@@ -36,8 +38,11 @@ export class PayMcpClient {
     }
 
     let amount = new BigNumber(0);
+    if (!oauthError.authorizationUrl.searchParams.get('amount')) {
+      throw new Error(`amount not provided`);
+    }
     try{
-        amount = new BigNumber(oauthError.authorizationUrl.searchParams.get('amount') ?? '0');
+        amount = new BigNumber(oauthError.authorizationUrl.searchParams.get('amount')!);
     } catch (e) {
         throw new Error(`Invalid amount ${oauthError.authorizationUrl.searchParams.get('amount')}`);
     }
@@ -60,16 +65,14 @@ export class PayMcpClient {
     // separate by a :
     //   The signature is calculated over codeChallenge+paymentId in order to 
     // prevent re-use of the token (since the codeChallenge is going to be unique per auth request).
-    const authToken = Buffer.from(paymentId).toString('base64') + ':' +
-        Buffer.from(signature).toString('base64');
+    const authToken = Buffer.from(`${paymentId}:${signature}`).toString('base64');
 
     // Make a fetch call to the authorization URL with the payment ID as a cookie
-    const response = await fetch(oauthError.authorizationUrl.toString(), {
+    const response = await this.fetchFn(oauthError.authorizationUrl.toString(), {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${authToken}`
-      },
-      redirect: 'manual' // Don't automatically follow redirects
+      }
     });
 
     // Check if we got a redirect response (301, 302, etc.)

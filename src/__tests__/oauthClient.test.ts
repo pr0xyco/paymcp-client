@@ -153,6 +153,90 @@ describe('oauthClient', () => {
       await expect(client.fetch('https://example.com/mcp')).rejects.not.toThrow(OAuthAuthenticationRequiredError);
       await expect(client.fetch('https://example.com/mcp')).rejects.toThrow('unexpected HTTP status code');
     });
+
+    it('should use refresh token to get a new access token if the current one expires', async () => {
+      const db = new SqliteOAuthClientDb(':memory:');
+      const oldToken = {
+        accessToken: 'oldAccessToken',
+        // Expires in the future, but the server can invalidate tokens whenever it wants
+        // regardless. Set the time in the future so future changes to the client don't
+        // pre-emptively refresh the token and break this test case
+        expiresAt: Date.now() + 1000,
+        refreshToken: 'oldRefreshToken'
+      };
+      db.saveAccessToken('https://example.com/mcp', oldToken);
+
+      const f = fetchMock.createInstance()
+        .getOnce('https://example.com/mcp', {
+          status: 401,
+          headers: {
+            'www-authenticate': 'Bearer error="invalid_grant", error_description="The refresh token has expired"'
+          }
+        })
+        .getOnce('https://example.com/mcp', 200);
+
+      mockResourceServer(f, 'https://example.com', '/mcp');
+      mockAuthorizationServer(f, 'https://paymcp.com')
+        .modifyRoute('https://paymcp.com/token', {
+          method: 'post',
+          response: {
+            status: 200,
+            body: {
+              access_token: 'newAccessToken',
+              refresh_token: 'newRefreshToken',
+              token_type: 'Bearer',
+              expires_in: 3600
+            }
+          }});
+
+      const client = oauthClient(f.fetchHandler, db);
+      const res = await client.fetch('https://example.com/mcp');
+      expect(res.status).toBe(200);
+      const tokenCall = f.callHistory.lastCall('https://paymcp.com/token');
+      expect(tokenCall).toBeDefined();
+      const body = (tokenCall?.args?.[1] as any).body as URLSearchParams;
+      // The request to refresh should have used the old refresh token
+      expect(body.get('refresh_token')).toEqual('oldRefreshToken');
+     
+      // Should be updated in the database as well
+      const token = await db.getAccessToken('https://example.com/mcp');
+      expect(token).not.toBeNull();
+      expect(token?.accessToken).toEqual('newAccessToken');
+      expect(token?.refreshToken).toEqual('newRefreshToken');
+      expect(token?.expiresAt).toBeGreaterThan(Date.now());
+    });
+
+    it('should throw if the token refresh fails', async () => {
+      const db = new SqliteOAuthClientDb(':memory:');
+      const oldToken = {
+        accessToken: 'oldAccessToken',
+        // Expires in the future, but the server can invalidate tokens whenever it wants
+        // regardless. Set the time in the future so future changes to the client don't
+        // pre-emptively refresh the token and break this test case
+        expiresAt: Date.now() + 1000,
+        refreshToken: 'oldRefreshToken'
+      };
+      db.saveAccessToken('https://example.com/mcp', oldToken);
+
+      const f = fetchMock.createInstance()
+        .getOnce('https://example.com/mcp', {
+          status: 401,
+          headers: {
+            'www-authenticate': 'Bearer error="invalid_grant", error_description="The refresh token has expired"'
+          }
+        })
+        .getOnce('https://example.com/mcp', 200);
+
+      mockResourceServer(f, 'https://example.com', '/mcp');
+      mockAuthorizationServer(f, 'https://paymcp.com')
+        .modifyRoute('https://paymcp.com/token', {
+          method: 'post',
+          response: { status: 400, body: {}}
+        });
+
+      const client = oauthClient(f.fetchHandler, db);
+      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow('Token Endpoint response (unexpected HTTP status code)');
+    });
   }); 
 
   describe('.getAuthorizationServer', () => {

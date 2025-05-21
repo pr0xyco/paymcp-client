@@ -27,11 +27,6 @@ export class PayMcpClient {
         throw new Error(`Payment network not provided`);
     }
 
-    const paymentMaker = this.paymentMakers.get(requestedNetwork);
-    if (!paymentMaker) {
-      throw new Error(`Payment network ${requestedNetwork} not found`);
-    }
-
     const destination = oauthError.authorizationUrl.searchParams.get('destination');
     if (!destination) {
         throw new Error(`destination not provided`);
@@ -55,6 +50,12 @@ export class PayMcpClient {
     const codeChallenge = oauthError.authorizationUrl.searchParams.get('code_challenge');
     if (!codeChallenge) {
         throw new Error(`Code challenge not provided`);
+    }
+
+    const paymentMaker = this.paymentMakers.get(requestedNetwork);
+    if (!paymentMaker) {
+      console.log(`PayMCP: payment network ${requestedNetwork} not set up for this server (available: ${Array.from(this.paymentMakers.keys()).join(', ')}) - re-throwing so it can be chained to the caller (if any)`);
+      throw oauthError;
     }
 
     const paymentId = await paymentMaker.makePayment(amount, currency, destination);

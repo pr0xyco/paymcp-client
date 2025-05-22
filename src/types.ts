@@ -55,8 +55,4 @@ export type TokenData = {
   aud?: string|string[],
 }
 
-export type FetchLike = (url: string, init?: {
-  method?: string;
-  headers?: Record<string, string>;
-  body?: any;
-}) => Promise<Response>;
+export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;

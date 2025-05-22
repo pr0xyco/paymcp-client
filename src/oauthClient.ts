@@ -464,17 +464,15 @@ export class OAuthClient {
       console.log(`No access token found for resource server ${url}. Passing no authorization header.`);
     }
 
-    const headers = (init?.headers || {}) as Record<string, string>;
     if (tokenData) {
-      headers['Authorization'] = `Bearer ${tokenData.accessToken}`;
+      init = init || {};
+      const headers = new Headers(init.headers);
+      headers.set('Authorization', `Bearer ${tokenData.accessToken}`);
+      init.headers = headers;
     }
     
     // Make the request with the access token
-    const response = await this.fetchFn(url, {
-      method: init?.method || 'GET',
-      headers,
-      body: init?.body
-    });
+    const response = await this.fetchFn(url, init);
     return response;
   }
 }

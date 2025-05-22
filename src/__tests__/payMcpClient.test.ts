@@ -13,6 +13,7 @@ function payMcpClient(fetchFn: FetchLike, solanaPaymentMaker?: PaymentMaker, db?
   };
   return new PayMcpClient(
     db ?? new SqliteOAuthClientDb(':memory:'),
+    'http://localhost:3000',
     isPublic,
     {'solana': solanaPaymentMaker},
     fetchFn,

@@ -7,11 +7,8 @@ export class PayMcpClient {
   private paymentMakers: Map<string, PaymentMaker>;
   private fetchFn: FetchLike;
 
-  constructor(db: OAuthClientDb, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
-    // We'll always use the paymcp://mcp redirect URI, because this client
-    // should never actually require a callback. Instead, we detect the oauth
-    // challenge, make a payment, and then directly invoke the oauth flow.
-    this.oauthClient = new OAuthClient(db, 'paymcp://mcp', isPublic, fetchFn, strict);
+  constructor(db: OAuthClientDb, callbackUrl: string, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
+    this.oauthClient = new OAuthClient(db, callbackUrl,  isPublic, fetchFn, strict);
     this.paymentMakers = new Map(Object.entries(paymentMakers));
     this.fetchFn = fetchFn;
   }

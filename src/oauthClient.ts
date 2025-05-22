@@ -209,19 +209,26 @@ export class OAuthClient {
     }
 
     const clientMetadata = await this.getRegistrationMetadata(resourceServerUrl);
+    console.log(`Client metadata: ${JSON.stringify(clientMetadata)}`);
     
-    // Make the registration request
-    const response = await oauth.dynamicClientRegistrationRequest(
-      authorizationServer,
-      clientMetadata,
-      {
-        [oauth.customFetch]: this.fetchFn,
-        [oauth.allowInsecureRequests]: this.allowInsecureRequests
-      }
-    );
+    let registeredClient: oauth.Client;
+    try {
+      // Make the registration request
+      const response = await oauth.dynamicClientRegistrationRequest(
+        authorizationServer,
+        clientMetadata,
+        {
+          [oauth.customFetch]: this.fetchFn,
+          [oauth.allowInsecureRequests]: this.allowInsecureRequests
+        }
+      );
 
-    // Process the registration response
-    const registeredClient = await oauth.processDynamicClientRegistrationResponse(response);
+      // Process the registration response
+      registeredClient = await oauth.processDynamicClientRegistrationResponse(response);
+    } catch (error: any) {
+      console.log('Client registration failure error_details: ', JSON.stringify(error.cause?.error_details))
+      throw error;
+    }
     
     console.log(`Successfully registered client with ID: ${registeredClient.client_id}`);
     

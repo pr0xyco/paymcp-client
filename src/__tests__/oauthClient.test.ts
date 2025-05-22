@@ -5,7 +5,7 @@ import fetchMock from 'fetch-mock';
 import { FetchLike, OAuthClientDb } from '../types';
 import { mockResourceServer, mockAuthorizationServer } from './testHelpers';
 
-function oauthClient(fetchFn: FetchLike, db?: OAuthClientDb, isPublic: boolean = false, strict: boolean = true, callbackUrl: string = 'https://example.com/callback') {
+function oauthClient(fetchFn: FetchLike, db?: OAuthClientDb, isPublic: boolean = false, strict: boolean = true, callbackUrl: string = 'https://example.com/mcp/callback') {
   return new OAuthClient(
     db ?? new SqliteOAuthClientDb(':memory:'),
     callbackUrl,
@@ -81,10 +81,10 @@ describe('oauthClient', () => {
 
     it('should construct authorization url with stored credentials if they exist', async () => {
       const db = new SqliteOAuthClientDb(':memory:');
-      db.saveClientCredentials('https://example.com/mcp', {
-        clientId: 'test-client-id',
+      db.saveClientCredentials('https://example.com/mcp/callback', {
+        clientId: 'testClientId',
         clientSecret: 'test-client-secret',
-        redirectUri: 'paymcp://paymcp'
+        redirectUri: 'https://example.com/mcp/callback'
       });
       const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 401);
       mockResourceServer(f, 'https://example.com', '/mcp');
@@ -97,8 +97,8 @@ describe('oauthClient', () => {
       catch (e: any) {
         const err = e as OAuthAuthenticationRequiredError;
         expect(err.message).toContain('OAuth authentication required');
-        expect(err.authorizationUrl.searchParams.get('client_id')).toBe('test-client-id');
-        expect(err.authorizationUrl.searchParams.get('redirect_uri')).toBe('paymcp://paymcp');
+        expect(err.authorizationUrl.searchParams.get('client_id')).toBe('testClientId');
+        expect(err.authorizationUrl.searchParams.get('redirect_uri')).toBe('https://example.com/mcp/callback');
         expect(err.authorizationUrl.searchParams.get('response_type')).toBe('code');
         expect(err.authorizationUrl.searchParams.get('state')).not.toBeNull();
         expect(err.authorizationUrl.searchParams.get('code_challenge')).not.toBeNull();
@@ -108,7 +108,7 @@ describe('oauthClient', () => {
     it('should include saved code and state in authorization url', async () => {
       const db = new SqliteOAuthClientDb(':memory:');
       db.saveClientCredentials('https://example.com/mcp', {
-        clientId: 'test-client-id',
+        clientId: 'testClientId',
         clientSecret: 'test-client-secret',
         redirectUri: 'paymcp://paymcp'
       });
@@ -317,7 +317,7 @@ describe('oauthClient', () => {
       expect(body.response_types).toEqual(["code"]);
       expect(body.grant_types).toEqual(["authorization_code", "refresh_token"]);
       expect(body.token_endpoint_auth_method).toEqual("none");
-      expect(body.client_name).toEqual("OAuth Client for https://example.com/mcp");
+      expect(body.client_name).toEqual("OAuth Client for https://example.com/mcp/callback");
     });
 
     it('should configure metadata for private clients', async () => {
@@ -333,7 +333,7 @@ describe('oauthClient', () => {
       expect(body.response_types).toEqual(["code"]);
       expect(body.grant_types).toEqual(["authorization_code", "refresh_token", "client_credentials"]);
       expect(body.token_endpoint_auth_method).toEqual("client_secret_post");
-      expect(body.client_name).toEqual("OAuth Client for https://example.com/mcp");
+      expect(body.client_name).toEqual("OAuth Client for https://example.com/mcp/callback");
     });
   });
 

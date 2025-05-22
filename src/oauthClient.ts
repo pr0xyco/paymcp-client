@@ -81,7 +81,7 @@ export class OAuthClient {
     const authorizationServer = await this.getAuthorizationServer(authServerUrl);
 
     // Get the client credentials
-    const credentials = await this.getClientCredentials(pkceValues.resourceServerUrl, authorizationServer);
+    const credentials = await this.getClientCredentials(authorizationServer);
     
     // Create the client configuration
     const client: oauth.Client = { 
@@ -175,7 +175,7 @@ export class OAuthClient {
     }
   }
 
-  protected getRegistrationMetadata = async (resourceServerUrl: string): Promise<Partial<oauth.OmitSymbolProperties<oauth.Client>>> => {
+  protected getRegistrationMetadata = async (): Promise<Partial<oauth.OmitSymbolProperties<oauth.Client>>> => {
     let grantTypes = ['authorization_code', 'refresh_token'];
     if (!this.isPublic) {
       grantTypes.push('client_credentials');
@@ -193,22 +193,19 @@ export class OAuthClient {
       response_types: ['code'], 
       grant_types: grantTypes,
       token_endpoint_auth_method: tokenEndpointAuthMethod,
-      client_name: `OAuth Client for ${resourceServerUrl}`,
+      client_name: `OAuth Client for ${this.callbackUrl}`,
     };
     return clientMetadata;
   }
 
-  protected registerClient = async (
-    authorizationServer: oauth.AuthorizationServer,
-    resourceServerUrl: string
-  ): Promise<ClientCredentials> => {
-    console.log(`Registering client with authorization server for ${resourceServerUrl}`);
+  protected registerClient = async (authorizationServer: oauth.AuthorizationServer): Promise<ClientCredentials> => {
+    console.log(`Registering client with authorization server for ${this.callbackUrl}`);
     
     if (!authorizationServer.registration_endpoint) {
       throw new Error('Authorization server does not support dynamic client registration');
     }
 
-    const clientMetadata = await this.getRegistrationMetadata(resourceServerUrl);
+    const clientMetadata = await this.getRegistrationMetadata();
     console.log(`Client metadata: ${JSON.stringify(clientMetadata)}`);
     
     let registeredClient: oauth.Client;
@@ -240,7 +237,7 @@ export class OAuthClient {
     };
     
     // Save the credentials in the database
-    await this.db.saveClientCredentials(resourceServerUrl, credentials);
+    await this.db.saveClientCredentials(this.callbackUrl, credentials);
     
     return credentials;
   }
@@ -270,12 +267,12 @@ export class OAuthClient {
     return { codeVerifier, codeChallenge, state };
   }
 
-  protected getClientCredentials = async (resourceServerUrl: string, authorizationServer: oauth.AuthorizationServer): Promise<ClientCredentials> => {
-    let credentials = await this.db.getClientCredentials(resourceServerUrl);
+  protected getClientCredentials = async (authorizationServer: oauth.AuthorizationServer): Promise<ClientCredentials> => {
+    let credentials = await this.db.getClientCredentials(this.callbackUrl);
     // If no credentials found, register a new client
     if (!credentials) {
-      console.log(`No client credentials found for ${resourceServerUrl}, attempting dynamic client registration`);
-      credentials = await this.registerClient(authorizationServer, resourceServerUrl);
+      console.log(`No client credentials found for ${this.callbackUrl}, attempting dynamic client registration`);
+      credentials = await this.registerClient(authorizationServer);
     }
     return credentials;
   }
@@ -305,7 +302,7 @@ export class OAuthClient {
     const authorizationServer = await this.getAuthorizationServer(authServerUrl);
     
     // Get the client credentials
-    let credentials = await this.getClientCredentials(resourceServerUrl, authorizationServer);
+    let credentials = await this.getClientCredentials(authorizationServer);
     
     // Generate PKCE values
     const { codeChallenge, state } = await this.generatePKCE(resourceServerUrl);
@@ -377,13 +374,13 @@ export class OAuthClient {
     const { codeVerifier, resourceServerUrl } = pkceValues;
     
     // Get the client credentials
-    let credentials = await this.getClientCredentials(resourceServerUrl, authorizationServer);
+    let credentials = await this.getClientCredentials(authorizationServer);
     
     let [response, client] = await this.makeTokenRequestAndClient(authorizationServer, credentials, codeVerifier, authResponse);
 
     if(response.status === 403 || response.status === 401) {
       console.log(`Bad response status exchanging code for token: ${response.statusText}. Could be due to bad client credentials - trying to re-register`);
-      credentials = await this.registerClient(authorizationServer, resourceServerUrl);
+      credentials = await this.registerClient(authorizationServer);
       [response, client] = await this.makeTokenRequestAndClient(authorizationServer, credentials, codeVerifier, authResponse);
     }
     
@@ -432,7 +429,7 @@ export class OAuthClient {
     }
     const authServerUrl = await this.getAuthorizationServerUrl(resourceServerUrl);
     const authorizationServer = await this.getAuthorizationServer(authServerUrl);
-    const credentials = await this.getClientCredentials(resourceServerUrl, authorizationServer);
+    const credentials = await this.getClientCredentials(authorizationServer);
     const [client, clientAuth] = await this.makeOAuthClientAndAuth(credentials);
 
     const response = await oauth.refreshTokenGrantRequest(

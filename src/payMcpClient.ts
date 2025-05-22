@@ -69,6 +69,7 @@ export class PayMcpClient {
     console.log(`PayMCP: fetching authorization URL ${oauthError.authorizationUrl.toString()} with auth token ${authToken}`);
     const response = await this.fetchFn(oauthError.authorizationUrl.toString(), {
       method: 'GET',
+      redirect: 'manual',
       headers: {
         'Authorization': `Bearer ${authToken}`
       }

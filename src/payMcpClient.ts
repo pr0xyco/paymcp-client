@@ -68,7 +68,8 @@ export class PayMcpClient {
     // prevent re-use of the token (since the codeChallenge is going to be unique per auth request).
     const authToken = Buffer.from(`${paymentId}:${signature}`).toString('base64');
 
-    // Make a fetch call to the authorization URL with the payment ID as a cookie
+    // Make a fetch call to the authorization URL with the payment ID
+    console.log(`PayMCP: fetching authorization URL ${oauthError.authorizationUrl.toString()} with auth token ${authToken}`);
     const response = await this.fetchFn(oauthError.authorizationUrl.toString(), {
       method: 'GET',
       headers: {

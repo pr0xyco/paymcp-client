@@ -20,7 +20,7 @@ export class OAuthGlobalClient {
     this.strict = strict; 
   }
 
-  static getResourceServerUrl = (url: string): string => {
+  static trimToPath = (url: string): string => {
     const urlObj = new URL(url);
     return `${urlObj.origin}${urlObj.pathname}`;
   }

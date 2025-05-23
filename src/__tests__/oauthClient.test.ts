@@ -43,6 +43,15 @@ describe('oauthClient', () => {
       await expect(client.fetch('https://example.com/mcp')).rejects.toThrow(OAuthAuthenticationRequiredError);
     });
 
+    it('should throw OAuthAuthenticationRequiredError with resource server url from www-authenticate header', async () => {
+      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', {status: 401, headers: {'www-authenticate': 'https://something.else/mcp'}});
+      mockResourceServer(f, 'https://example.com', '/mcp');
+      mockAuthorizationServer(f, 'https://paymcp.com');
+
+      const client = oauthClient(f.fetchHandler);
+      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow('https://something.else/mcp');
+    });
+
     it('should send token in request to resource server if one exists in the DB', async () => {
       const db = new SqliteOAuthDb(':memory:');
       db.saveAccessToken('bdj', 'https://example.com/mcp', {

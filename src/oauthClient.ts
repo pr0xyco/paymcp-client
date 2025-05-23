@@ -22,27 +22,46 @@ export class OAuthClient extends OAuthGlobalClient {
     this.userId = userId;
   }
 
+  protected resourceServerRequired = (response: Response): string | null => {
+    if (response.status !== 401) {
+      return null;
+    }
+    const wwwAuthenticate = response.headers.get('www-authenticate') || '';
+    if (URL.canParse(wwwAuthenticate)) {
+      return wwwAuthenticate;
+    }
+    return null;
+  }
+
   fetch: FetchLike = async (url, init) => {
-    const resourceServerUrl = OAuthClient.getResourceServerUrl(url);
     let response = await this._doFetch(url, init);
     
     if (response.status === 401) {
       console.log('Received 401 Unauthorized status');
 
+      let resourceServerUrl = this.resourceServerRequired(response);
       // If the response indicates an expired token, try to refresh it
-      const wwwAuthenticate = response.headers.get('www-authenticate');
-      if (wwwAuthenticate && wwwAuthenticate.includes('error="invalid_grant"')) {
-        console.log('Response includes invalid_grant error, attempting to refresh token');
-        const newToken = await this.tryRefreshToken(resourceServerUrl);
+      if (response.headers.get('www-authenticate')?.includes('error="invalid_grant"')) {
+        // TODO: We're assuming here that the url we're fetching from IS the resource server
+        // That's not always true
+        const calledServer = OAuthClient.trimToPath(url);
+        console.log(`Response includes invalid_grant error, attempting to refresh token from ${calledServer}`);
+        const newToken = await this.tryRefreshToken(calledServer);
         if(newToken) {
           response = await this._doFetch(url, init);
+          resourceServerUrl = this.resourceServerRequired(response);
         }
       }
-    }
 
-    if (response.status === 401) {
-      console.log(`Received 401 Unauthorized status, throwing OAuthAuthenticationRequiredError for ${resourceServerUrl}`);
-      throw new OAuthAuthenticationRequiredError(resourceServerUrl);
+      if (response.status === 401) /* still */ {
+        // If we couldn't get a valid resourceServerUrl from wwwAuthenticate, use the original URL
+        if (!resourceServerUrl) {
+          console.log(`No resource server url found in response www-authenticate header, falling back to the called url (this could be incorrect if the called server is just proxying back an oauth failure)`);
+          resourceServerUrl = OAuthClient.trimToPath(url);
+        }
+        console.log(`Throwing OAuthAuthenticationRequiredError for ${resourceServerUrl}`);
+        throw new OAuthAuthenticationRequiredError(resourceServerUrl);
+      }
     }
   
     return response;
@@ -215,7 +234,7 @@ export class OAuthClient extends OAuthGlobalClient {
 
   protected getAccessToken = async (url: string): Promise<AccessToken | null> => {
     // Get the access token from the database
-    let resourceServerUrl = OAuthClient.getResourceServerUrl(url);
+    let resourceServerUrl = OAuthClient.trimToPath(url);
     let parentPath = OAuthClient.getParentPath(resourceServerUrl);
     let tokenData = await this.db.getAccessToken(this.userId, resourceServerUrl);
     // If there's no token for the requested path, see if there's one for the parent

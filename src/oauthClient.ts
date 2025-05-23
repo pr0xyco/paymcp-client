@@ -1,6 +1,7 @@
 import * as oauth from 'oauth4webapi';
 import { URL } from 'url';
-import { FetchLike, OAuthClientDb, ClientCredentials, PKCEValues, TokenData, AccessToken } from './types';
+import { FetchLike, ClientCredentials, PKCEValues, AccessToken, OAuthDb} from './types';
+import { OAuthGlobalClient } from './oAuthGlobalClient';
 
 export class OAuthAuthenticationRequiredError extends Error {
   constructor(
@@ -13,22 +14,14 @@ export class OAuthAuthenticationRequiredError extends Error {
   }
 }
 
-export class OAuthClient {
-  protected db: OAuthClientDb;
-  protected allowInsecureRequests = process.env.NODE_ENV === 'development';
-  protected callbackUrl: string;
-  protected fetchFn: FetchLike;
-  protected strict: boolean;
-  // Whether this is a public client, which is incapable of keeping a client secret
-  // safe, or a confidential client, which can.
-  protected isPublic: boolean;
+export class OAuthClient extends OAuthGlobalClient {
+  protected db: OAuthDb;
+  protected userId: string;
 
-  constructor(db: OAuthClientDb, callbackUrl: string, isPublic: boolean, fetchFn: FetchLike = fetch, strict: boolean = true) {
+  constructor(userId: string, db: OAuthDb, callbackUrl: string, isPublic: boolean, fetchFn: FetchLike = fetch, strict: boolean = true) {
+    super(db, callbackUrl, isPublic, fetchFn, strict);
     this.db = db;
-    this.callbackUrl = callbackUrl;
-    this.isPublic = isPublic;
-    this.fetchFn = fetchFn;
-    this.strict = strict;
+    this.userId = userId;
   }
 
   fetch: FetchLike = async (url, init) => {
@@ -71,7 +64,7 @@ export class OAuthClient {
     }
     
     // Get the PKCE values and resource server URL from the database using the state
-    const pkceValues = await this.db.getPKCEValues(state);
+    const pkceValues = await this.db.getPKCEValues(this.userId, state);
     if (!pkceValues) {
       throw new Error(`No PKCE values found for state: ${state}`);
     }
@@ -101,81 +94,7 @@ export class OAuthClient {
     await this.exchangeCodeForToken(authResponse, state, pkceValues, authorizationServer);
   }
 
-  static getResourceServerUrl = (url: string): string => {
-    const urlObj = new URL(url);
-    return `${urlObj.origin}${urlObj.pathname}`;
-  }
-
-  static getParentPath = (url: string): string | null => {
-    const urlObj = new URL(url);
-    urlObj.pathname = urlObj.pathname.replace(/\/[^/]+$/, '');
-    const res = urlObj.toString();
-    return res === url ? null : res;
-  }
-
-  protected getAuthorizationServerUrl = async (resourceServerUrl: string): Promise<URL> => {
-    console.log(`Fetching authorization server configuration for ${resourceServerUrl}`);
-    
-    try {
-      let authServerUrl: string | undefined = undefined;
-      const resourceUrl = new URL(resourceServerUrl);
-
-      const prmResponse = await oauth.resourceDiscoveryRequest(resourceUrl, {
-        [oauth.customFetch]: this.fetchFn,
-        [oauth.allowInsecureRequests]: this.allowInsecureRequests
-      });
-
-      const fallbackToRsAs = !this.strict && prmResponse.status === 404;
-
-      if (!fallbackToRsAs) {
-        const resourceServer = await oauth.processResourceDiscoveryResponse(resourceUrl, prmResponse);
-        authServerUrl = resourceServer.authorization_servers?.[0];
-      } else {
-        // Some older servers serve OAuth metadata from the MCP server instead of PRM data, 
-        // so if the PRM data isn't found, we'll try to get the AS metadata from the MCP server
-        console.log('Protected Resource Metadata document not found, looking for OAuth metadata on resource server');
-        // Trim off the path - OAuth metadata is also singular for a server and served from the root
-        const rsUrl = new URL(resourceServerUrl);
-        const rsAsUrl = rsUrl.protocol + '//' + rsUrl.host + '/.well-known/oauth-authorization-server';
-        // Don't use oauth4webapi for this, because these servers might be specifiying an issuer that is not
-        // themselves (in order to use a separate AS by just hosting the OAuth metadata on the MCP server)
-        //   This is against the OAuth spec, but some servers do it anyway
-        const rsAsResponse = await this.fetchFn(rsAsUrl);
-        if (rsAsResponse.status === 200) {
-          const rsAsBody = await rsAsResponse.json();
-          authServerUrl = rsAsBody.issuer;
-        }
-      }
-
-      if (!authServerUrl) {
-        throw new Error('No authorization_servers found in protected resource metadata');
-      }
-
-      console.log(`Found authorization server URL: ${authServerUrl}`);
-      return new URL(authServerUrl);
-    } catch (error: any) {
-      console.log(`Error fetching authorization server configuration: ${error}`);
-      throw error;
-    }
-  }
-      
-  protected getAuthorizationServer = async (authServerUrl: URL): Promise<oauth.AuthorizationServer> => {
-    try {
-      // Now, get the authorization server metadata
-      const response = await oauth.discoveryRequest(authServerUrl, {
-        algorithm: 'oauth2',
-        [oauth.customFetch]: this.fetchFn,
-        [oauth.allowInsecureRequests]: this.allowInsecureRequests,
-      });
-      const authorizationServer = await oauth.processDiscoveryResponse(authServerUrl, response);
-      return authorizationServer;
-    } catch (error: any) {
-      console.log(`Error fetching authorization server configuration: ${error}`);
-      throw error;
-    }
-  }
-
-  protected getRegistrationMetadata = async (): Promise<Partial<oauth.OmitSymbolProperties<oauth.Client>>> => {
+  override getRegistrationMetadata = async (): Promise<Partial<oauth.OmitSymbolProperties<oauth.Client>>> => {
     let grantTypes = ['authorization_code', 'refresh_token'];
     if (!this.isPublic) {
       grantTypes.push('client_credentials');
@@ -198,50 +117,6 @@ export class OAuthClient {
     return clientMetadata;
   }
 
-  protected registerClient = async (authorizationServer: oauth.AuthorizationServer): Promise<ClientCredentials> => {
-    console.log(`Registering client with authorization server for ${this.callbackUrl}`);
-    
-    if (!authorizationServer.registration_endpoint) {
-      throw new Error('Authorization server does not support dynamic client registration');
-    }
-
-    const clientMetadata = await this.getRegistrationMetadata();
-    console.log(`Client metadata: ${JSON.stringify(clientMetadata)}`);
-    
-    let registeredClient: oauth.Client;
-    try {
-      // Make the registration request
-      const response = await oauth.dynamicClientRegistrationRequest(
-        authorizationServer,
-        clientMetadata,
-        {
-          [oauth.customFetch]: this.fetchFn,
-          [oauth.allowInsecureRequests]: this.allowInsecureRequests
-        }
-      );
-
-      // Process the registration response
-      registeredClient = await oauth.processDynamicClientRegistrationResponse(response);
-    } catch (error: any) {
-      console.log('Client registration failure error_details: ', JSON.stringify(error.cause?.error_details))
-      throw error;
-    }
-    
-    console.log(`Successfully registered client with ID: ${registeredClient.client_id}`);
-    
-    // Create client credentials from the registration response
-    const credentials: ClientCredentials = {
-      clientId: registeredClient.client_id,
-      clientSecret: registeredClient.client_secret?.toString() || '', // Public client has no secret
-      redirectUri: this.callbackUrl
-    };
-    
-    // Save the credentials in the database
-    await this.db.saveClientCredentials(this.callbackUrl, credentials);
-    
-    return credentials;
-  }
-
   protected generatePKCE = async (resourceServerUrl: string): Promise<{
     codeVerifier: string;
     codeChallenge: string;
@@ -257,7 +132,7 @@ export class OAuthClient {
     const state = oauth.generateRandomState();
     
     // Save the PKCE values in the database
-    await this.db.savePKCEValues(state, {
+    await this.db.savePKCEValues(this.userId, state, {
       codeVerifier,
       codeChallenge,
       resourceServerUrl
@@ -265,16 +140,6 @@ export class OAuthClient {
     
     console.log(`Generated PKCE values with state: ${state}`);
     return { codeVerifier, codeChallenge, state };
-  }
-
-  protected getClientCredentials = async (authorizationServer: oauth.AuthorizationServer): Promise<ClientCredentials> => {
-    let credentials = await this.db.getClientCredentials(this.callbackUrl);
-    // If no credentials found, register a new client
-    if (!credentials) {
-      console.log(`No client credentials found for ${this.callbackUrl}, attempting dynamic client registration`);
-      credentials = await this.registerClient(authorizationServer);
-    }
-    return credentials;
   }
 
   protected getAuthorizeUrl = async (
@@ -317,28 +182,6 @@ export class OAuthClient {
     
     // Throw error with the authorization URL
     throw new OAuthAuthenticationRequiredError(state, resourceServerUrl, authorizationUrl);
-  }
-
-  protected makeOAuthClientAndAuth = async (
-    credentials: ClientCredentials
-  ): Promise<[oauth.Client, oauth.ClientAuth]> => {
-    // Create the client configuration
-    const client: oauth.Client = { 
-      client_id: credentials.clientId,
-      token_endpoint_auth_method: 'none'
-    };
-    let clientAuth = oauth.None();
-    
-    // If the client has a secret, that means it was registered as a confidential client
-    // In that case, we should auth to the token endpoint using the client secret as well.
-    // In either case (public or confidential), we're also using PKCE
-    if (credentials.clientSecret) {
-      client.token_endpoint_auth_method = 'client_secret_post';
-      // Create the client authentication method
-      clientAuth = oauth.ClientSecretPost(credentials.clientSecret);
-    }
-
-    return [client, clientAuth];
   }
 
   protected makeTokenRequestAndClient = async (
@@ -392,7 +235,7 @@ export class OAuthClient {
     );
     
     // Save the access token in the database
-    await this.db.saveAccessToken(resourceServerUrl, {
+    await this.db.saveAccessToken(this.userId, resourceServerUrl, {
       accessToken: result.access_token,
       refreshToken: result.refresh_token,
       expiresAt: result.expires_in 
@@ -407,11 +250,11 @@ export class OAuthClient {
     // Get the access token from the database
     let resourceServerUrl = OAuthClient.getResourceServerUrl(url);
     let parentPath = OAuthClient.getParentPath(resourceServerUrl);
-    let tokenData = await this.db.getAccessToken(resourceServerUrl);
+    let tokenData = await this.db.getAccessToken(this.userId, resourceServerUrl);
     // If there's no token for the requested path, see if there's one for the parent
     while (!tokenData && parentPath){
       console.log(`No access token found for ${resourceServerUrl}, trying parent ${parentPath}`);
-      tokenData = await this.db.getAccessToken(parentPath);
+      tokenData = await this.db.getAccessToken(this.userId, parentPath);
       parentPath = OAuthClient.getParentPath(parentPath);
     }
     return tokenData;
@@ -451,7 +294,7 @@ export class OAuthClient {
         ? Date.now() + result.expires_in * 1000
         : undefined
     };
-    await this.db.saveAccessToken(resourceServerUrl, at);
+    await this.db.saveAccessToken(this.userId, resourceServerUrl, at);
     return at;
   }
 

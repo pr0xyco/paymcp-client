@@ -23,30 +23,19 @@ export type AccessToken = {
   expiresAt?: number
 };
 
-export interface OAuthClientDb {
-  getClientCredentials(resourceServerUrl: string): Promise<ClientCredentials | null>;
-
-  saveClientCredentials(
-    resourceServerUrl: string,
-    credentials: ClientCredentials
-  ): Promise<void>;
-
-  getPKCEValues(state: string): Promise<PKCEValues | null>;
-
-  savePKCEValues(
-    state: string,
-    values: PKCEValues
-  ): Promise<void>;
-
-  getAccessToken(resourceServerUrl: string): Promise<AccessToken | null>;
-
-  saveAccessToken(
-    resourceServerUrl: string,
-    token: AccessToken
-  ): Promise<void>;
-
+export interface OAuthGlobalDb {
+  getClientCredentials(serverUrl: string): Promise<ClientCredentials | null>;
+  saveClientCredentials(serverUrl: string, credentials: ClientCredentials): Promise<void>;
   close(): Promise<void>;
 }
+
+export interface OAuthDb extends OAuthGlobalDb {
+  getPKCEValues(userId: string, state: string): Promise<PKCEValues | null>;
+  savePKCEValues(userId: string, state: string, values: PKCEValues): Promise<void>;
+  getAccessToken(userId: string, resourceServerUrl: string): Promise<AccessToken | null>;
+  saveAccessToken(userId: string, resourceServerUrl: string, token: AccessToken): Promise<void>;
+}
+
 
 export type TokenData = {
   active: boolean,

@@ -2,9 +2,9 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { DEFAULT_ENCRYPTION_KEY_ENV_VAR, encrypt, decrypt } from '@longrun/crypto-utils/src/index';
-import type { ClientCredentials, PKCEValues, AccessToken, OAuthClientDb } from './types';
+import type { ClientCredentials, PKCEValues, AccessToken, OAuthDb } from './types';
 
-export class SqliteOAuthClientDb implements OAuthClientDb {
+export class SqliteOAuthDb implements OAuthDb {
   private db: Database.Database;
   private initialized = false;
   private encryptionKey: string;
@@ -17,7 +17,7 @@ export class SqliteOAuthClientDb implements OAuthClientDb {
     return path.join(dbDir, 'oauthClient.db');
   }
 
-  constructor(dbPathOrDb: string | Database.Database = SqliteOAuthClientDb.getDefaultDbPath(), encryptionKey?: string) {
+  constructor(dbPathOrDb: string | Database.Database = SqliteOAuthDb.getDefaultDbPath(), encryptionKey?: string) {
     encryptionKey = encryptionKey || process.env[DEFAULT_ENCRYPTION_KEY_ENV_VAR];
     if (!encryptionKey) {
       throw new Error(`No encryptionKey provided and ${DEFAULT_ENCRYPTION_KEY_ENV_VAR} environment variable is not set`);
@@ -40,17 +40,21 @@ export class SqliteOAuthClientDb implements OAuthClientDb {
       );
 
       CREATE TABLE IF NOT EXISTS oauth_pkce_values (
-        state TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        state TEXT NOT NULL,
         encrypted_code_verifier TEXT NOT NULL,
         encrypted_code_challenge TEXT NOT NULL,
-        resource_server_url TEXT NOT NULL
+        resource_server_url TEXT NOT NULL,
+        PRIMARY KEY (user_id, state)
       );
 
       CREATE TABLE IF NOT EXISTS oauth_access_tokens (
-        resource_server_url TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        resource_server_url TEXT NOT NULL,
         encrypted_access_token TEXT NOT NULL,
         encrypted_refresh_token TEXT,
-        expires_at TEXT
+        expires_at TEXT,
+        PRIMARY KEY (user_id, resource_server_url)
       );
     `);
 
@@ -85,11 +89,11 @@ export class SqliteOAuthClientDb implements OAuthClientDb {
     );
   }
 
-  getPKCEValues = async (state: string): Promise<PKCEValues | null> => {
+  getPKCEValues = async (userId: string, state: string): Promise<PKCEValues | null> => {
     await this.ensureInitialized();
     const row = this.db.prepare(
-      'SELECT encrypted_code_verifier, encrypted_code_challenge, resource_server_url FROM oauth_pkce_values WHERE state = ?'
-    ).get(state) as { encrypted_code_verifier: string; encrypted_code_challenge: string; resource_server_url: string } | undefined;
+      'SELECT encrypted_code_verifier, encrypted_code_challenge, resource_server_url FROM oauth_pkce_values WHERE user_id = ? AND state = ?'
+    ).get(userId, state) as { encrypted_code_verifier: string; encrypted_code_challenge: string; resource_server_url: string } | undefined;
 
     return row ? {
       codeVerifier: decrypt(row.encrypted_code_verifier, this.encryptionKey),
@@ -99,13 +103,15 @@ export class SqliteOAuthClientDb implements OAuthClientDb {
   }
 
   savePKCEValues = async (
+    userId: string,
     state: string,
     values: PKCEValues
   ): Promise<void> => {
     await this.ensureInitialized();
     this.db.prepare(
-      'INSERT INTO oauth_pkce_values (state, encrypted_code_verifier, encrypted_code_challenge, resource_server_url) VALUES (?, ?, ?, ?)'
+      'INSERT INTO oauth_pkce_values (user_id, state, encrypted_code_verifier, encrypted_code_challenge, resource_server_url) VALUES (?, ?, ?, ?, ?)'
     ).run(
+      userId,
       state,
       encrypt(values.codeVerifier, this.encryptionKey),
       encrypt(values.codeChallenge, this.encryptionKey),
@@ -113,11 +119,11 @@ export class SqliteOAuthClientDb implements OAuthClientDb {
     );
   }
 
-  getAccessToken = async (resourceServerUrl: string): Promise<AccessToken | null> => {
+  getAccessToken = async (userId: string, resourceServerUrl: string): Promise<AccessToken | null> => {
     await this.ensureInitialized();
     const row = this.db.prepare(
-      'SELECT encrypted_access_token, encrypted_refresh_token, expires_at FROM oauth_access_tokens WHERE resource_server_url = ?'
-    ).get(resourceServerUrl) as { encrypted_access_token: string; encrypted_refresh_token: string | null; expires_at: string | null } | undefined;
+      'SELECT encrypted_access_token, encrypted_refresh_token, expires_at FROM oauth_access_tokens WHERE user_id = ? AND resource_server_url = ?'
+    ).get(userId, resourceServerUrl) as { encrypted_access_token: string; encrypted_refresh_token: string | null; expires_at: string | null } | undefined;
 
     if (!row) return null;
 
@@ -129,13 +135,15 @@ export class SqliteOAuthClientDb implements OAuthClientDb {
   }
 
   saveAccessToken = async (
+    userId: string,
     resourceServerUrl: string,
     token: AccessToken
   ): Promise<void> => {
     await this.ensureInitialized();
     this.db.prepare(
-      'INSERT OR REPLACE INTO oauth_access_tokens (resource_server_url, encrypted_access_token, encrypted_refresh_token, expires_at) VALUES (?, ?, ?, ?)'
+      'INSERT OR REPLACE INTO oauth_access_tokens (user_id, resource_server_url, encrypted_access_token, encrypted_refresh_token, expires_at) VALUES (?, ?, ?, ?, ?)'
     ).run(
+      userId,
       resourceServerUrl,
       encrypt(token.accessToken, this.encryptionKey),
       token.refreshToken ? encrypt(token.refreshToken, this.encryptionKey) : null,

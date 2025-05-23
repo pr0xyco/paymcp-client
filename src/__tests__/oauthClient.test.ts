@@ -1,13 +1,14 @@
-import { SqliteOAuthClientDb } from '../oauthClientDb';
-import { OAuthClient, OAuthAuthenticationRequiredError } from '../oauthClient';
+import { SqliteOAuthDb } from '../oAuthDb';
+import { OAuthClient, OAuthAuthenticationRequiredError } from '../oAuthClient';
 import { describe, it, expect } from 'vitest';
 import fetchMock from 'fetch-mock';
-import { FetchLike, OAuthClientDb } from '../types';
+import { FetchLike, OAuthDb } from '../types';
 import { mockResourceServer, mockAuthorizationServer } from './testHelpers';
 
-function oauthClient(fetchFn: FetchLike, db?: OAuthClientDb, isPublic: boolean = false, strict: boolean = true, callbackUrl: string = 'https://example.com/mcp/callback') {
+function oauthClient(fetchFn: FetchLike, db?: OAuthDb, isPublic: boolean = false, strict: boolean = true, callbackUrl: string = 'https://example.com/mcp/callback') {
   return new OAuthClient(
-    db ?? new SqliteOAuthClientDb(':memory:'),
+    "bdj",
+    db ?? new SqliteOAuthDb(':memory:'),
     callbackUrl,
     isPublic,
     fetchFn,
@@ -43,8 +44,8 @@ describe('oauthClient', () => {
     });
 
     it('should send token in request to resource server if one exists in the DB', async () => {
-      const db = new SqliteOAuthClientDb(':memory:');
-      db.saveAccessToken('https://example.com/mcp', {
+      const db = new SqliteOAuthDb(':memory:');
+      db.saveAccessToken('bdj', 'https://example.com/mcp', {
         accessToken: 'test-access-token',
         expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30
       });
@@ -59,12 +60,12 @@ describe('oauthClient', () => {
     });
 
     it('should NOT send a stored token for the parent path if no token exists for the resource path', async () => {
-      const db = new SqliteOAuthClientDb(':memory:');
+      const db = new SqliteOAuthDb(':memory:');
       // Note: not saving for /mcp
       //   We intentionally don't want to use a token for the parent to prevent sharing tokens in a multi-tenant
       // environment. It's possible we'll have to revisit this slightly if servers are creating different
       // resources for both the /sse and /message endpoints
-      db.saveAccessToken('https://example.com', {
+      db.saveAccessToken('bdj', 'https://example.com', {
         accessToken: 'test-access-token',
         expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30
       });
@@ -80,7 +81,7 @@ describe('oauthClient', () => {
     });
 
     it('should construct authorization url with stored credentials if they exist', async () => {
-      const db = new SqliteOAuthClientDb(':memory:');
+      const db = new SqliteOAuthDb(':memory:');
       db.saveClientCredentials('https://example.com/mcp/callback', {
         clientId: 'testClientId',
         clientSecret: 'test-client-secret',
@@ -106,7 +107,7 @@ describe('oauthClient', () => {
     });
 
     it('should include saved code and state in authorization url', async () => {
-      const db = new SqliteOAuthClientDb(':memory:');
+      const db = new SqliteOAuthDb(':memory:');
       db.saveClientCredentials('https://example.com/mcp', {
         clientId: 'testClientId',
         clientSecret: 'test-client-secret',
@@ -125,7 +126,7 @@ describe('oauthClient', () => {
         expect(err.message).toContain('OAuth authentication required');
         const state = err?.authorizationUrl.searchParams.get('state');
         const codeChallenge = err?.authorizationUrl.searchParams.get('code_challenge');
-        const pkce = await db.getPKCEValues(state!);
+        const pkce = await db.getPKCEValues('bdj', state!);
         expect(pkce).not.toBeNull();
         expect(pkce?.codeChallenge).toEqual(codeChallenge);
       }
@@ -155,7 +156,7 @@ describe('oauthClient', () => {
     });
 
     it('should use refresh token to get a new access token if the current one expires', async () => {
-      const db = new SqliteOAuthClientDb(':memory:');
+      const db = new SqliteOAuthDb(':memory:');
       const oldToken = {
         accessToken: 'oldAccessToken',
         // Expires in the future, but the server can invalidate tokens whenever it wants
@@ -164,7 +165,7 @@ describe('oauthClient', () => {
         expiresAt: Date.now() + 1000,
         refreshToken: 'oldRefreshToken'
       };
-      db.saveAccessToken('https://example.com/mcp', oldToken);
+      db.saveAccessToken('bdj', 'https://example.com/mcp', oldToken);
 
       const f = fetchMock.createInstance()
         .getOnce('https://example.com/mcp', {
@@ -199,7 +200,7 @@ describe('oauthClient', () => {
       expect(body.get('refresh_token')).toEqual('oldRefreshToken');
      
       // Should be updated in the database as well
-      const token = await db.getAccessToken('https://example.com/mcp');
+      const token = await db.getAccessToken('bdj', 'https://example.com/mcp');
       expect(token).not.toBeNull();
       expect(token?.accessToken).toEqual('newAccessToken');
       expect(token?.refreshToken).toEqual('newRefreshToken');
@@ -207,7 +208,7 @@ describe('oauthClient', () => {
     });
 
     it('should throw if the token refresh fails', async () => {
-      const db = new SqliteOAuthClientDb(':memory:');
+      const db = new SqliteOAuthDb(':memory:');
       const oldToken = {
         accessToken: 'oldAccessToken',
         // Expires in the future, but the server can invalidate tokens whenever it wants
@@ -216,7 +217,7 @@ describe('oauthClient', () => {
         expiresAt: Date.now() + 1000,
         refreshToken: 'oldRefreshToken'
       };
-      db.saveAccessToken('https://example.com/mcp', oldToken);
+      db.saveAccessToken('bdj', 'https://example.com/mcp', oldToken);
 
       const f = fetchMock.createInstance()
         .getOnce('https://example.com/mcp', {
@@ -279,7 +280,7 @@ describe('oauthClient', () => {
         });
       mockAuthorizationServer(f, 'https://paymcp.com');
 
-      const client = oauthClient(f.fetchHandler, new SqliteOAuthClientDb(':memory:'), true, false); // strict = false
+      const client = oauthClient(f.fetchHandler, new SqliteOAuthDb(':memory:'), true, false); // strict = false
       await expect(client.fetch('https://example.com/mcp')).rejects.toThrow(OAuthAuthenticationRequiredError);
       const prmCall = f.callHistory.lastCall('https://example.com/.well-known/oauth-protected-resource/mcp');
       expect(prmCall).toBeDefined();
@@ -309,7 +310,7 @@ describe('oauthClient', () => {
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com');
 
-      const client = oauthClient(f.fetchHandler, new SqliteOAuthClientDb(':memory:'), true);
+      const client = oauthClient(f.fetchHandler, new SqliteOAuthDb(':memory:'), true);
       await expect(client.fetch('https://example.com/mcp')).rejects.toThrow(OAuthAuthenticationRequiredError);
       const registerCall = f.callHistory.lastCall('https://paymcp.com/register');
       expect(registerCall).toBeDefined();
@@ -325,7 +326,7 @@ describe('oauthClient', () => {
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com');
 
-      const client = oauthClient(f.fetchHandler, new SqliteOAuthClientDb(':memory:'), false);
+      const client = oauthClient(f.fetchHandler, new SqliteOAuthDb(':memory:'), false);
       await expect(client.fetch('https://example.com/mcp')).rejects.toThrow(OAuthAuthenticationRequiredError);
       const registerCall = f.callHistory.lastCall('https://paymcp.com/register');
       expect(registerCall).toBeDefined();
@@ -339,7 +340,7 @@ describe('oauthClient', () => {
 
   describe('.handleCallback', () => {
     it('should exchange code for token', async () => {
-      const db = new SqliteOAuthClientDb(':memory:');
+      const db = new SqliteOAuthDb(':memory:');
       const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 401);
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com');
@@ -354,7 +355,7 @@ describe('oauthClient', () => {
       }
 
       const state = oauthError?.authorizationUrl.searchParams.get('state')!;
-      const pkce = await db.getPKCEValues(state);
+      const pkce = await db.getPKCEValues('bdj', state);
       expect(pkce).not.toBeNull();
 
       const authCallbackUrl = `https://example.com/callback?code=test-code&state=${state}`;
@@ -368,7 +369,7 @@ describe('oauthClient', () => {
     });
 
     it('should save tokens to the DB', async () => {
-      const db = new SqliteOAuthClientDb(':memory:');
+      const db = new SqliteOAuthDb(':memory:');
       const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 401);
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com');
@@ -387,7 +388,7 @@ describe('oauthClient', () => {
       const authCallbackUrl = `https://example.com/callback?code=test-code&state=${state}`;
       await client.handleCallback(authCallbackUrl);
 
-      const token = await db.getAccessToken('https://example.com/mcp');
+      const token = await db.getAccessToken('bdj', 'https://example.com/mcp');
       expect(token).not.toBeNull();
       expect(token?.accessToken).toEqual('testAccessToken');
       expect(token?.expiresAt).toBeGreaterThan(Date.now());
@@ -417,8 +418,8 @@ describe('oauthClient', () => {
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com');
 
-      const db = new SqliteOAuthClientDb(':memory:');
-      db.savePKCEValues('test-state', {
+      const db = new SqliteOAuthDb(':memory:');
+      db.savePKCEValues('bdj', 'test-state', {
         codeVerifier: 'test-code-verifier',
         codeChallenge: 'test-code-challenge',
         resourceServerUrl: 'https://example.com/mcp'
@@ -446,8 +447,8 @@ describe('oauthClient', () => {
             expires_in: 3600
           });
 
-      const db = new SqliteOAuthClientDb(':memory:');
-      db.savePKCEValues('test-state', {
+      const db = new SqliteOAuthDb(':memory:');
+      db.savePKCEValues('bdj', 'test-state', {
         codeVerifier: 'test-code-verifier',
         codeChallenge: 'test-code-challenge',
         resourceServerUrl: 'https://example.com/mcp'
@@ -469,13 +470,13 @@ describe('oauthClient', () => {
     it('should throw if authorization server authorization endpoint returns an error', async () => {
       // We can't save this - the authorization URL was constructed using the client_id, so 
       // if the client registration is no longer valid, there's nothing we can do.
-      const db = new SqliteOAuthClientDb(':memory:');
-      db.savePKCEValues('test-state', {
+      const db = new SqliteOAuthDb(':memory:');
+      db.savePKCEValues('bdj', 'test-state', {
         codeVerifier: 'test-code-verifier',
         codeChallenge: 'test-code-challenge',
         resourceServerUrl: 'https://example.com/mcp'
       });
-      const f = fetchMock.mockGlobal();
+      const f = fetchMock.createInstance();
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com')
   

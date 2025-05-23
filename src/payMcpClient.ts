@@ -1,5 +1,5 @@
-import type { PaymentMaker, FetchLike, OAuthClientDb } from './types.js';
-import { OAuthClient, OAuthAuthenticationRequiredError } from './oauthClient.js';
+import type { PaymentMaker, FetchLike, OAuthDb } from './types.js';
+import { OAuthClient, OAuthAuthenticationRequiredError } from './oAuthClient.js';
 import { BigNumber } from 'bignumber.js';
 
 export class PayMcpClient {
@@ -7,26 +7,26 @@ export class PayMcpClient {
   private paymentMakers: Map<string, PaymentMaker>;
   private fetchFn: FetchLike;
 
-  constructor(db: OAuthClientDb, callbackUrl: string, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
-    this.oauthClient = new OAuthClient(db, callbackUrl,  isPublic, fetchFn, strict);
+  constructor(userId: string, db: OAuthDb, callbackUrl: string, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
+    this.oauthClient = new OAuthClient(userId, db, callbackUrl, isPublic, fetchFn, strict);
     this.paymentMakers = new Map(Object.entries(paymentMakers));
     this.fetchFn = fetchFn;
   }
 
   private handleAuthFailure = async (oauthError: OAuthAuthenticationRequiredError): Promise<string> => {
     if (oauthError.authorizationUrl.searchParams.get('payMcp') !== '1') {
-        console.log(`PayMCP: authorization url was not a PayMcp url, aborting: ${oauthError.authorizationUrl}`);
-        throw oauthError;
+      console.log(`PayMCP: authorization url was not a PayMcp url, aborting: ${oauthError.authorizationUrl}`);
+      throw oauthError;
     }
 
     const requestedNetwork = oauthError.authorizationUrl.searchParams.get('network');
     if (!requestedNetwork) {
-        throw new Error(`Payment network not provided`);
+      throw new Error(`Payment network not provided`);
     }
 
     const destination = oauthError.authorizationUrl.searchParams.get('destination');
     if (!destination) {
-        throw new Error(`destination not provided`);
+      throw new Error(`destination not provided`);
     }
 
     let amount = new BigNumber(0);
@@ -34,19 +34,19 @@ export class PayMcpClient {
       throw new Error(`amount not provided`);
     }
     try{
-        amount = new BigNumber(oauthError.authorizationUrl.searchParams.get('amount')!);
+      amount = new BigNumber(oauthError.authorizationUrl.searchParams.get('amount')!);
     } catch (e) {
-        throw new Error(`Invalid amount ${oauthError.authorizationUrl.searchParams.get('amount')}`);
+      throw new Error(`Invalid amount ${oauthError.authorizationUrl.searchParams.get('amount')}`);
     }
 
     const currency = oauthError.authorizationUrl.searchParams.get('currency');
     if (!currency) {
-        throw new Error(`Currency not provided`);
+      throw new Error(`Currency not provided`);
     }
 
     const codeChallenge = oauthError.authorizationUrl.searchParams.get('code_challenge');
     if (!codeChallenge) {
-        throw new Error(`Code challenge not provided`);
+      throw new Error(`Code challenge not provided`);
     }
 
     const paymentMaker = this.paymentMakers.get(requestedNetwork);

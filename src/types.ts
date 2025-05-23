@@ -36,7 +36,6 @@ export interface OAuthDb extends OAuthGlobalDb {
   saveAccessToken(userId: string, resourceServerUrl: string, token: AccessToken): Promise<void>;
 }
 
-
 export type TokenData = {
   active: boolean,
   scope?: string,

@@ -3,9 +3,9 @@ import { OAuthClient, OAuthAuthenticationRequiredError } from './oAuthClient.js'
 import { BigNumber } from 'bignumber.js';
 
 export class PayMcpClient {
-  private oauthClient: OAuthClient;
-  private paymentMakers: Map<string, PaymentMaker>;
-  private fetchFn: FetchLike;
+  protected oauthClient: OAuthClient;
+  protected paymentMakers: Map<string, PaymentMaker>;
+  protected fetchFn: FetchLike;
 
   constructor(userId: string, db: OAuthDb, callbackUrl: string, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
     this.oauthClient = new OAuthClient(userId, db, callbackUrl, isPublic, fetchFn, strict);
@@ -13,38 +13,45 @@ export class PayMcpClient {
     this.fetchFn = fetchFn;
   }
 
-  private handleAuthFailure = async (oauthError: OAuthAuthenticationRequiredError): Promise<string> => {
-    if (oauthError.authorizationUrl.searchParams.get('payMcp') !== '1') {
-      console.log(`PayMCP: authorization url was not a PayMcp url, aborting: ${oauthError.authorizationUrl}`);
+  protected handleAuthFailure = async (oauthError: OAuthAuthenticationRequiredError): Promise<string> => {
+    const authorizationServer = await this.oauthClient.getAuthorizationServer(oauthError.resourceServerUrl);
+    if (!authorizationServer.authorization_endpoint) {
+      throw new Error(`Authorization endpoint not found in authorization server metadata for ${oauthError.resourceServerUrl}`);
+    }
+
+    const authorizationUrl = new URL(authorizationServer.authorization_endpoint);
+
+    if (authorizationUrl.searchParams.get('payMcp') !== '1') {
+      console.log(`PayMCP: authorization url was not a PayMcp url, aborting: ${authorizationUrl}`);
       throw oauthError;
     }
 
-    const requestedNetwork = oauthError.authorizationUrl.searchParams.get('network');
+    const requestedNetwork = authorizationUrl.searchParams.get('network');
     if (!requestedNetwork) {
       throw new Error(`Payment network not provided`);
     }
 
-    const destination = oauthError.authorizationUrl.searchParams.get('destination');
+    const destination = authorizationUrl.searchParams.get('destination');
     if (!destination) {
       throw new Error(`destination not provided`);
     }
 
     let amount = new BigNumber(0);
-    if (!oauthError.authorizationUrl.searchParams.get('amount')) {
+    if (!authorizationUrl.searchParams.get('amount')) {
       throw new Error(`amount not provided`);
     }
     try{
-      amount = new BigNumber(oauthError.authorizationUrl.searchParams.get('amount')!);
+      amount = new BigNumber(authorizationUrl.searchParams.get('amount')!);
     } catch (e) {
-      throw new Error(`Invalid amount ${oauthError.authorizationUrl.searchParams.get('amount')}`);
+      throw new Error(`Invalid amount ${authorizationUrl.searchParams.get('amount')}`);
     }
 
-    const currency = oauthError.authorizationUrl.searchParams.get('currency');
+    const currency = authorizationUrl.searchParams.get('currency');
     if (!currency) {
       throw new Error(`Currency not provided`);
     }
 
-    const codeChallenge = oauthError.authorizationUrl.searchParams.get('code_challenge');
+    const codeChallenge = authorizationUrl.searchParams.get('code_challenge');
     if (!codeChallenge) {
       throw new Error(`Code challenge not provided`);
     }
@@ -66,8 +73,8 @@ export class PayMcpClient {
     const authToken = Buffer.from(`${paymentId}:${signature}`).toString('base64');
 
     // Make a fetch call to the authorization URL with the payment ID
-    console.log(`PayMCP: fetching authorization URL ${oauthError.authorizationUrl.toString()} with auth token ${authToken}`);
-    const response = await this.fetchFn(oauthError.authorizationUrl.toString(), {
+    console.log(`PayMCP: fetching authorization URL ${authorizationUrl.toString()} with auth token ${authToken}`);
+    const response = await this.fetchFn(authorizationUrl.toString(), {
       method: 'GET',
       redirect: 'manual',
       headers: {

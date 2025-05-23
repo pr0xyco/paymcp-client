@@ -32,8 +32,8 @@ export class OAuthGlobalClient {
     return res === url ? null : res;
   }
 
-  introspectToken = async (tokenIntrospectionServerUrl: string, token: string, additionalParameters?: Record<string, string>): Promise<TokenData> => {
-    const authorizationServer = await this.getAuthorizationServer(new URL(tokenIntrospectionServerUrl));
+  introspectToken = async (resourceServerUrl: string, token: string, additionalParameters?: Record<string, string>): Promise<TokenData> => {
+    const authorizationServer = await this.getAuthorizationServer(resourceServerUrl);
     // When introspecting a token, the "resource" server that we want credentials for is the auth server
     let clientCredentials = await this.getClientCredentials(authorizationServer);
 
@@ -95,11 +95,10 @@ export class OAuthGlobalClient {
     };
   }
 
-  protected getAuthorizationServerUrl = async (resourceServerUrl: string): Promise<URL> => {
+  getAuthorizationServer = async (resourceServerUrl: string): Promise<oauth.AuthorizationServer> => {
     console.log(`Fetching authorization server configuration for ${resourceServerUrl}`);
     
     try {
-      let authServerUrl: string | undefined = undefined;
       const resourceUrl = new URL(resourceServerUrl);
 
       const prmResponse = await oauth.resourceDiscoveryRequest(resourceUrl, {
@@ -109,9 +108,10 @@ export class OAuthGlobalClient {
 
       const fallbackToRsAs = !this.strict && prmResponse.status === 404;
 
+      let authServer: string | undefined = undefined;
       if (!fallbackToRsAs) {
         const resourceServer = await oauth.processResourceDiscoveryResponse(resourceUrl, prmResponse);
-        authServerUrl = resourceServer.authorization_servers?.[0];
+        authServer = resourceServer.authorization_servers?.[0];
       } else {
         // Some older servers serve OAuth metadata from the MCP server instead of PRM data, 
         // so if the PRM data isn't found, we'll try to get the AS metadata from the MCP server
@@ -125,24 +125,16 @@ export class OAuthGlobalClient {
         const rsAsResponse = await this.fetchFn(rsAsUrl);
         if (rsAsResponse.status === 200) {
           const rsAsBody = await rsAsResponse.json();
-          authServerUrl = rsAsBody.issuer;
+          authServer = rsAsBody.issuer;
         }
       }
 
-      if (!authServerUrl) {
+      if (!authServer) {
         throw new Error('No authorization_servers found in protected resource metadata');
       }
 
-      console.log(`Found authorization server URL: ${authServerUrl}`);
-      return new URL(authServerUrl);
-    } catch (error: any) {
-      console.log(`Error fetching authorization server configuration: ${error}`);
-      throw error;
-    }
-  }
-      
-  protected getAuthorizationServer = async (authServerUrl: URL): Promise<oauth.AuthorizationServer> => {
-    try {
+      console.log(`Found authorization server URL: ${authServer}`);
+      const authServerUrl = new URL(authServer);
       // Now, get the authorization server metadata
       const response = await oauth.discoveryRequest(authServerUrl, {
         algorithm: 'oauth2',
@@ -168,29 +160,6 @@ export class OAuthGlobalClient {
       token_endpoint_auth_method: 'client_secret_basic',
       client_name: `Token Introspection Client for ${this.callbackUrl}`,
     }; 
-    return clientMetadata;
-  }
-
-  protected getRegistrationMetadataInternal = async (): Promise<Partial<oauth.OmitSymbolProperties<oauth.Client>>> => {
-    let grantTypes = ['authorization_code', 'refresh_token'];
-    if (!this.isPublic) {
-      grantTypes.push('client_credentials');
-    }
-
-    let tokenEndpointAuthMethod = 'none';
-    if (!this.isPublic) {
-      tokenEndpointAuthMethod = 'client_secret_post';
-    }
-    
-    // Create client metadata for registration
-    const clientMetadata = {
-      // Required fields for public client
-      redirect_uris: [this.callbackUrl], 
-      response_types: ['code'], 
-      grant_types: grantTypes,
-      token_endpoint_auth_method: tokenEndpointAuthMethod,
-      client_name: `OAuth Client for ${this.callbackUrl}`,
-    };
     return clientMetadata;
   }
 
@@ -248,9 +217,9 @@ export class OAuthGlobalClient {
     return credentials;
   }
 
-  protected makeOAuthClientAndAuth = async (
+  protected makeOAuthClientAndAuth = (
     credentials: ClientCredentials
-  ): Promise<[oauth.Client, oauth.ClientAuth]> => {
+  ): [oauth.Client, oauth.ClientAuth] => {
     // Create the client configuration
     const client: oauth.Client = { 
       client_id: credentials.clientId,

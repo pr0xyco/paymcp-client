@@ -5,11 +5,9 @@ import { OAuthGlobalClient } from './oAuthGlobalClient';
 
 export class OAuthAuthenticationRequiredError extends Error {
   constructor(
-    public readonly state: string,
     public readonly resourceServerUrl: string,
-    public readonly authorizationUrl: URL
   ) {
-    super('OAuth authentication required');
+    super(`OAuth authentication required: ${resourceServerUrl}`);
     this.name = 'OAuthAuthenticationRequiredError';
   }
 }
@@ -43,11 +41,8 @@ export class OAuthClient extends OAuthGlobalClient {
     }
 
     if (response.status === 401) {
-      console.log('Received 401 Unauthorized status, initiating OAuth flow');
-      // Request authorization and throw specific error
-      // This will do some requests to get the authorization url 
-      // and then throw and error containing it
-      await this.throwAuthorizationError(resourceServerUrl);
+      console.log(`Received 401 Unauthorized status, throwing OAuthAuthenticationRequiredError for ${resourceServerUrl}`);
+      throw new OAuthAuthenticationRequiredError(resourceServerUrl);
     }
   
     return response;
@@ -70,8 +65,7 @@ export class OAuthClient extends OAuthGlobalClient {
     }
     
     // Get the authorization server configuration
-    const authServerUrl = await this.getAuthorizationServerUrl(pkceValues.resourceServerUrl);
-    const authorizationServer = await this.getAuthorizationServer(authServerUrl);
+    const authorizationServer = await this.getAuthorizationServer(pkceValues.resourceServerUrl);
 
     // Get the client credentials
     const credentials = await this.getClientCredentials(authorizationServer);
@@ -142,6 +136,7 @@ export class OAuthClient extends OAuthGlobalClient {
     return { codeVerifier, codeChallenge, state };
   }
 
+  // TODO: do we still need this?
   protected getAuthorizeUrl = async (
     authorizationServer: oauth.AuthorizationServer, 
     credentials: ClientCredentials, 
@@ -159,38 +154,13 @@ export class OAuthClient extends OAuthGlobalClient {
     return authorizationUrl;
   }
 
-  protected throwAuthorizationError = async (resourceServerUrl: string): Promise<void> => {
-    console.log(`Throwing OAuthAuthenticationRequiredError for ${resourceServerUrl}`);
-    
-    // Get the authorization server configuration
-    const authServerUrl = await this.getAuthorizationServerUrl(resourceServerUrl);
-    const authorizationServer = await this.getAuthorizationServer(authServerUrl);
-    
-    // Get the client credentials
-    let credentials = await this.getClientCredentials(authorizationServer);
-    
-    // Generate PKCE values
-    const { codeChallenge, state } = await this.generatePKCE(resourceServerUrl);
-    
-    // Create the authorization URL
-    const authorizationUrl = await this.getAuthorizeUrl(
-      authorizationServer,
-      credentials,
-      codeChallenge,
-      state
-    );
-    
-    // Throw error with the authorization URL
-    throw new OAuthAuthenticationRequiredError(state, resourceServerUrl, authorizationUrl);
-  }
-
   protected makeTokenRequestAndClient = async (
     authorizationServer: oauth.AuthorizationServer,
     credentials: ClientCredentials,
     codeVerifier: string,
     authResponse: URLSearchParams
   ): Promise<[Response, oauth.Client]> => {
-    const [client, clientAuth] = await this.makeOAuthClientAndAuth(credentials);
+    const [client, clientAuth] = this.makeOAuthClientAndAuth(credentials);
 
     const response = await oauth.authorizationCodeGrantRequest(
       authorizationServer,
@@ -252,6 +222,8 @@ export class OAuthClient extends OAuthGlobalClient {
     let parentPath = OAuthClient.getParentPath(resourceServerUrl);
     let tokenData = await this.db.getAccessToken(this.userId, resourceServerUrl);
     // If there's no token for the requested path, see if there's one for the parent
+    // TODO: re-evaluate if we should recurse up to parent paths to find tokens
+    // IIRC this is mainly to support SSE transport's separate /mcp and /mcp/message paths
     while (!tokenData && parentPath){
       console.log(`No access token found for ${resourceServerUrl}, trying parent ${parentPath}`);
       tokenData = await this.db.getAccessToken(this.userId, parentPath);
@@ -270,10 +242,9 @@ export class OAuthClient extends OAuthGlobalClient {
       console.log('No refresh token found, cannot refresh');
       return null;
     }
-    const authServerUrl = await this.getAuthorizationServerUrl(resourceServerUrl);
-    const authorizationServer = await this.getAuthorizationServer(authServerUrl);
+    const authorizationServer = await this.getAuthorizationServer(resourceServerUrl);
     const credentials = await this.getClientCredentials(authorizationServer);
-    const [client, clientAuth] = await this.makeOAuthClientAndAuth(credentials);
+    const [client, clientAuth] = this.makeOAuthClientAndAuth(credentials);
 
     const response = await oauth.refreshTokenGrantRequest(
       authorizationServer,

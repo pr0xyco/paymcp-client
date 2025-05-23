@@ -80,79 +80,20 @@ describe('oauthClient', () => {
       expect((mcpCall?.options?.headers as any)?.['authorization']).toBeUndefined();
     });
 
-    it('should construct authorization url with stored credentials if they exist', async () => {
-      const db = new SqliteOAuthDb(':memory:');
-      db.saveClientCredentials('https://example.com/mcp/callback', {
-        clientId: 'testClientId',
-        clientSecret: 'test-client-secret',
-        redirectUri: 'https://example.com/mcp/callback'
-      });
+    it('should return resource server url in error', async () => {
       const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 401);
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com');
 
-      const client = oauthClient(f.fetchHandler, db);
+      const client = oauthClient(f.fetchHandler);
       try {
         await client.fetch('https://example.com/mcp');
       }
       catch (e: any) {
         const err = e as OAuthAuthenticationRequiredError;
         expect(err.message).toContain('OAuth authentication required');
-        expect(err.authorizationUrl.searchParams.get('client_id')).toBe('testClientId');
-        expect(err.authorizationUrl.searchParams.get('redirect_uri')).toBe('https://example.com/mcp/callback');
-        expect(err.authorizationUrl.searchParams.get('response_type')).toBe('code');
-        expect(err.authorizationUrl.searchParams.get('state')).not.toBeNull();
-        expect(err.authorizationUrl.searchParams.get('code_challenge')).not.toBeNull();
+        expect(err.resourceServerUrl).toBe('https://example.com/mcp');
       }
-    });
-
-    it('should include saved code and state in authorization url', async () => {
-      const db = new SqliteOAuthDb(':memory:');
-      db.saveClientCredentials('https://example.com/mcp', {
-        clientId: 'testClientId',
-        clientSecret: 'test-client-secret',
-        redirectUri: 'paymcp://paymcp'
-      });
-      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 401);
-      mockResourceServer(f, 'https://example.com', '/mcp');
-      mockAuthorizationServer(f, 'https://paymcp.com');
-
-      const client = oauthClient(f.fetchHandler, db);
-      try {
-        await client.fetch('https://example.com/mcp');
-      }
-      catch (e: any) {
-        const err = e as OAuthAuthenticationRequiredError;
-        expect(err.message).toContain('OAuth authentication required');
-        const state = err?.authorizationUrl.searchParams.get('state');
-        const codeChallenge = err?.authorizationUrl.searchParams.get('code_challenge');
-        const pkce = await db.getPKCEValues('bdj', state!);
-        expect(pkce).not.toBeNull();
-        expect(pkce?.codeChallenge).toEqual(codeChallenge);
-      }
-    });
-
-    it('should register client if there are no stored credentials', async () => {
-      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 401);
-      mockResourceServer(f, 'https://example.com', '/mcp');
-      mockAuthorizationServer(f, 'https://paymcp.com');
-
-      const client = oauthClient(f.fetchHandler);
-      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow(OAuthAuthenticationRequiredError);
-      const registerCall = f.callHistory.lastCall('https://paymcp.com/register');
-      expect(registerCall).toBeDefined();
-    });
-
-    it('should throw if client registration request fails', async () => {
-      const f = fetchMock.createInstance().get('https://example.com/mcp', 401);
-      mockResourceServer(f, 'https://example.com', '/mcp');
-      mockAuthorizationServer(f, 'https://paymcp.com')
-        .modifyRoute('https://paymcp.com/register', {method: 'post', response: {status: 400, body: {}}});
-
-
-      const client = oauthClient(f.fetchHandler);
-      await expect(client.fetch('https://example.com/mcp')).rejects.not.toThrow(OAuthAuthenticationRequiredError);
-      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow('unexpected HTTP status code');
     });
 
     it('should use refresh token to get a new access token if the current one expires', async () => {
@@ -247,21 +188,26 @@ describe('oauthClient', () => {
       mockAuthorizationServer(f, 'https://paymcp.com');
 
       const client = oauthClient(f.fetchHandler);
-      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow(OAuthAuthenticationRequiredError);
+      const res = await client.getAuthorizationServer('https://example.com/mcp');
+      expect(res).toBeDefined();
+      expect(res.issuer).toBe('https://paymcp.com');
+      expect(res.authorization_endpoint).toBe('https://paymcp.com/authorize');
+      expect(res.registration_endpoint).toBe('https://paymcp.com/register');
+      
       const prmCall = f.callHistory.lastCall('https://example.com/.well-known/oauth-protected-resource/mcp');
       expect(prmCall).toBeDefined();
     });
 
-    it('should strip querystring for PRM request URL', async () => {
-      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 401);
-      mockResourceServer(f, 'https://example.com', '/mcp');
+    it('should not strip querystring for PRM request URL', async () => {
+      const f = fetchMock.createInstance();
+      mockResourceServer(f, 'https://example.com', '/mcp?test=1');
       mockAuthorizationServer(f, 'https://paymcp.com');
 
       const client = oauthClient(f.fetchHandler);
-      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow(OAuthAuthenticationRequiredError);
-      const prmCall = f.callHistory.lastCall('https://example.com/.well-known/oauth-protected-resource/mcp');
+      const res = await client.getAuthorizationServer('https://example.com/mcp?test=1');
+      
+      const prmCall = f.callHistory.lastCall('https://example.com/.well-known/oauth-protected-resource/mcp?test=1');
       expect(prmCall).toBeDefined();
-      expect(prmCall?.args[0]).toBe('https://example.com/.well-known/oauth-protected-resource/mcp');
     });
 
     it('should try to request AS metadata from resource server if PRM doc cannot be found (non-strict mode)', async () => {
@@ -281,7 +227,8 @@ describe('oauthClient', () => {
       mockAuthorizationServer(f, 'https://paymcp.com');
 
       const client = oauthClient(f.fetchHandler, new SqliteOAuthDb(':memory:'), true, false); // strict = false
-      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow(OAuthAuthenticationRequiredError);
+      
+      const res = await client.getAuthorizationServer('https://example.com/mcp');
       const prmCall = f.callHistory.lastCall('https://example.com/.well-known/oauth-protected-resource/mcp');
       expect(prmCall).toBeDefined();
       expect(prmCall?.response?.status).toBe(404);
@@ -299,8 +246,7 @@ describe('oauthClient', () => {
         .modifyRoute('https://example.com/.well-known/oauth-protected-resource/mcp', {response: {status: 404}})
 
       const client = oauthClient(f.fetchHandler);
-      await expect(client.fetch('https://example.com/mcp')).rejects.not.toThrow(OAuthAuthenticationRequiredError);
-      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow('unexpected HTTP status code');
+      await expect(client.getAuthorizationServer('https://example.com/mcp')).rejects.toThrow('unexpected HTTP status code');
     });
   });
 
@@ -311,7 +257,8 @@ describe('oauthClient', () => {
       mockAuthorizationServer(f, 'https://paymcp.com');
 
       const client = oauthClient(f.fetchHandler, new SqliteOAuthDb(':memory:'), true);
-      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow(OAuthAuthenticationRequiredError);
+      
+      const res = await client.makeAuthorizationUrl('https://example.com/mcp');
       const registerCall = f.callHistory.lastCall('https://paymcp.com/register');
       expect(registerCall).toBeDefined();
       const body = JSON.parse((registerCall?.args?.[1] as any).body);
@@ -327,7 +274,8 @@ describe('oauthClient', () => {
       mockAuthorizationServer(f, 'https://paymcp.com');
 
       const client = oauthClient(f.fetchHandler, new SqliteOAuthDb(':memory:'), false);
-      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow(OAuthAuthenticationRequiredError);
+      
+      const res = await client.makeAuthorizationUrl('https://example.com/mcp');
       const registerCall = f.callHistory.lastCall('https://paymcp.com/register');
       expect(registerCall).toBeDefined();
       const body = JSON.parse((registerCall?.args?.[1] as any).body);
@@ -335,6 +283,23 @@ describe('oauthClient', () => {
       expect(body.grant_types).toEqual(["authorization_code", "refresh_token", "client_credentials"]);
       expect(body.token_endpoint_auth_method).toEqual("client_secret_post");
       expect(body.client_name).toEqual("OAuth Client for https://example.com/mcp/callback");
+    });
+  });
+
+  describe('.makeAuthorizationUrl', () => {
+    it('should make an authorization url', async () => {
+      const f = fetchMock.createInstance();
+      mockResourceServer(f, 'https://example.com', '/mcp');
+      mockAuthorizationServer(f, 'https://paymcp.com');
+
+      const client = oauthClient(f.fetchHandler);
+      const authUrl = await client.makeAuthorizationUrl('https://example.com/mcp');
+      expect(authUrl.searchParams.get('client_id')).toBe('testClientId');
+      expect(authUrl.searchParams.get('redirect_uri')).toBe('https://example.com/mcp/callback');
+      expect(authUrl.searchParams.get('response_type')).toBe('code');
+      expect(authUrl.searchParams.get('code_challenge')).toBeDefined();
+      expect(authUrl.searchParams.get('code_challenge_method')).toBe('S256');
+      expect(authUrl.searchParams.get('state')).toBeDefined();
     });
   });
 
@@ -354,12 +319,16 @@ describe('oauthClient', () => {
         oauthError = e as OAuthAuthenticationRequiredError;
       }
 
-      const state = oauthError?.authorizationUrl.searchParams.get('state')!;
+      expect(oauthError).toBeDefined();
+      expect(oauthError?.resourceServerUrl).toBe('https://example.com/mcp');
+
+      const authUrl = await client.makeAuthorizationUrl(oauthError?.resourceServerUrl!);
+      const state = authUrl.searchParams.get('state')!;
       const pkce = await db.getPKCEValues('bdj', state);
       expect(pkce).not.toBeNull();
 
-      const authCallbackUrl = `https://example.com/callback?code=test-code&state=${state}`;
-      await client.handleCallback(authCallbackUrl);
+      const callbackUrl = `https://example.com/callback?code=test-code&state=${state}`;
+      await client.handleCallback(callbackUrl);
       const tokenCall = f.callHistory.lastCall('https://paymcp.com/token');
       expect(tokenCall).toBeDefined();
       const body = (tokenCall?.args?.[1] as any).body as URLSearchParams;
@@ -382,11 +351,11 @@ describe('oauthClient', () => {
       catch (e: any) {
         oauthError = e as OAuthAuthenticationRequiredError;
       }
+      const authUrl = await client.makeAuthorizationUrl(oauthError?.resourceServerUrl!);
+      const state = authUrl.searchParams.get('state')!;
 
-      const state = oauthError?.authorizationUrl.searchParams.get('state')!;
-
-      const authCallbackUrl = `https://example.com/callback?code=test-code&state=${state}`;
-      await client.handleCallback(authCallbackUrl);
+      const callbackUrl = `https://example.com/callback?code=test-code&state=${state}`;
+      await client.handleCallback(callbackUrl);
 
       const token = await db.getAccessToken('bdj', 'https://example.com/mcp');
       expect(token).not.toBeNull();

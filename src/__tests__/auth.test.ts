@@ -3,7 +3,7 @@ import { requireOAuthUser } from '../auth.js';
 import httpMocks from 'node-mocks-http';
 import { SqliteOAuthDb } from '../oAuthDb.js';
 import { OAuthClient } from '../oAuthClient.js';
-import { mockAuthorizationServer } from './testHelpers';
+import { mockAuthorizationServer, mockResourceServer } from './testHelpers';
 import fetchMock from 'fetch-mock';
 
 describe('requireOAuthAuthUser', () => {
@@ -76,11 +76,12 @@ describe('requireOAuthAuthUser', () => {
     const req = httpMocks.createRequest({ headers: { authorization: 'Bearer invalid-token' } });
     const res = httpMocks.createResponse();
     const f = fetchMock.createInstance();
+    mockResourceServer(f, 'https://example.com', '/mcp');
     mockAuthorizationServer(f, 'https://paymcp.com')
       .modifyRoute('https://paymcp.com/introspect', {method: 'post', response: {body: {active: false}}});
     const client = new OAuthClient("bdj", new SqliteOAuthDb(':memory:'), 'https://paymcp.com/callback', false, f.fetchHandler);
 
-    const fn = requireOAuthUser('https://paymcp.com', client);
+    const fn = requireOAuthUser('https://example.com/mcp', client);
     const user = await fn(req, res);
     expect(user).toBeUndefined();
     expect(res.statusCode).toEqual(401);
@@ -90,11 +91,12 @@ describe('requireOAuthAuthUser', () => {
     const req = httpMocks.createRequest({ headers: { authorization: `Bearer test-access-token` } });
     const res = httpMocks.createResponse();
     const f = fetchMock.createInstance();
+    mockResourceServer(f, 'https://example.com', '/mcp');
     mockAuthorizationServer(f, 'https://paymcp.com')
       .modifyRoute('https://paymcp.com/introspect', {method: 'post', response: {body: {active: true, sub: 'test-user'}}});
     const client = new OAuthClient("bdj", new SqliteOAuthDb(':memory:'), 'https://paymcp.com/callback', false, f.fetchHandler);
 
-    const fn = requireOAuthUser('https://paymcp.com', client);
+    const fn = requireOAuthUser('https://example.com/mcp', client);
     const user = await fn(req, res);
     expect(user).toBe('test-user');
     expect(res.statusCode).toEqual(200);
@@ -104,6 +106,7 @@ describe('requireOAuthAuthUser', () => {
     const req = httpMocks.createRequest({ headers: { authorization: `Bearer test-access-token` } });
     const res = httpMocks.createResponse();
     const f = fetchMock.createInstance();
+    mockResourceServer(f, 'https://example.com', '/mcp');
     mockAuthorizationServer(f, 'https://paymcp.com');
     const db = new SqliteOAuthDb(':memory:');
     const creds = {
@@ -115,7 +118,7 @@ describe('requireOAuthAuthUser', () => {
     const client = new OAuthClient("bdj", db, 'https://paymcp.com/callback', false, f.fetchHandler);
 
     const encodedCreds = Buffer.from(`${encodeURIComponent(creds.clientId)}:${encodeURIComponent(creds.clientSecret)}`).toString('base64');
-    const fn = requireOAuthUser('https://paymcp.com', client);
+    const fn = requireOAuthUser('https://example.com/mcp', client);
     const user = await fn(req, res);
     expect(res.statusCode).toEqual(200);
     expect(user).toBe('testUser');
@@ -128,11 +131,12 @@ describe('requireOAuthAuthUser', () => {
     const req = httpMocks.createRequest({ headers: { authorization: `Bearer test-access-token` } });
     const res = httpMocks.createResponse();
     const f = fetchMock.createInstance();
+    mockResourceServer(f, 'https://example.com', '/mcp');
     mockAuthorizationServer(f, 'https://paymcp.com');
     const db = new SqliteOAuthDb(':memory:');
     const client = new OAuthClient("bdj", db, 'https://paymcp.com/callback', false, f.fetchHandler);
 
-    const fn = requireOAuthUser('https://paymcp.com', client);
+    const fn = requireOAuthUser('https://example.com/mcp', client);
     const user = await fn(req, res);
     expect(res.statusCode).toEqual(200);
     expect(user).toBe('testUser');
@@ -144,6 +148,7 @@ describe('requireOAuthAuthUser', () => {
     const req = httpMocks.createRequest({ headers: { authorization: `Bearer test-access-token` } });
     const res = httpMocks.createResponse();
     const f = fetchMock.createInstance();
+    mockResourceServer(f, 'https://example.com', '/mcp');
     mockAuthorizationServer(f, 'https://paymcp.com')
       .modifyRoute('https://paymcp.com/introspect', {method: 'post', response: {status: 401, body: {}}})
       .postOnce('https://paymcp.com/introspect', { 
@@ -159,7 +164,7 @@ describe('requireOAuthAuthUser', () => {
     db.saveClientCredentials('https://paymcp.com', creds);
     const client = new OAuthClient("bdj", db, 'https://example.com/mcp/callback', false, f.fetchHandler);
 
-    const fn = requireOAuthUser('https://paymcp.com', client);
+    const fn = requireOAuthUser('https://example.com/mcp', client);
     const user = await fn(req, res);
     expect(res.statusCode).toEqual(200);
     expect(user).toBe('testUser');

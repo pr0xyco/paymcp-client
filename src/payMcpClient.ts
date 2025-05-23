@@ -14,12 +14,7 @@ export class PayMcpClient {
   }
 
   protected handleAuthFailure = async (oauthError: OAuthAuthenticationRequiredError): Promise<string> => {
-    const authorizationServer = await this.oauthClient.getAuthorizationServer(oauthError.resourceServerUrl);
-    if (!authorizationServer.authorization_endpoint) {
-      throw new Error(`Authorization endpoint not found in authorization server metadata for ${oauthError.resourceServerUrl}`);
-    }
-
-    const authorizationUrl = new URL(authorizationServer.authorization_endpoint);
+    const authorizationUrl = await this.oauthClient.makeAuthorizationUrl(oauthError.resourceServerUrl);
 
     if (authorizationUrl.searchParams.get('payMcp') !== '1') {
       console.log(`PayMCP: authorization url was not a PayMcp url, aborting: ${authorizationUrl}`);

@@ -48,6 +48,21 @@ export class OAuthClient extends OAuthGlobalClient {
     return response;
   }
 
+  makeAuthorizationUrl = async (resourceServerUrl: string): Promise<URL> => {
+    const authorizationServer = await this.getAuthorizationServer(resourceServerUrl);
+    const credentials = await this.getClientCredentials(authorizationServer);
+    const pkceValues = await this.generatePKCE(resourceServerUrl);
+
+    const authorizationUrl = new URL(authorizationServer.authorization_endpoint || '');
+    authorizationUrl.searchParams.set('client_id', credentials.clientId);
+    authorizationUrl.searchParams.set('redirect_uri', credentials.redirectUri);
+    authorizationUrl.searchParams.set('response_type', 'code');
+    authorizationUrl.searchParams.set('code_challenge', pkceValues.codeChallenge);
+    authorizationUrl.searchParams.set('code_challenge_method', 'S256');
+    authorizationUrl.searchParams.set('state', pkceValues.state);
+    return authorizationUrl;
+  }
+
   handleCallback = async (url: string): Promise<void> => {
     console.log(`Handling authorization code callback: ${url}`);
 

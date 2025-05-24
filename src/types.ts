@@ -14,13 +14,15 @@ export type ClientCredentials = {
 export type PKCEValues = {
   codeVerifier: string,
   codeChallenge: string,
-  resourceServerUrl: string
+  resourceServerUrl: string,
+  url: string
 };
 
 export type AccessToken = {
   accessToken: string,
   refreshToken?: string,
-  expiresAt?: number
+  expiresAt?: number,
+  resourceServerUrl: string
 };
 
 export interface OAuthGlobalDb {
@@ -32,8 +34,8 @@ export interface OAuthGlobalDb {
 export interface OAuthDb extends OAuthGlobalDb {
   getPKCEValues(userId: string, state: string): Promise<PKCEValues | null>;
   savePKCEValues(userId: string, state: string, values: PKCEValues): Promise<void>;
-  getAccessToken(userId: string, resourceServerUrl: string): Promise<AccessToken | null>;
-  saveAccessToken(userId: string, resourceServerUrl: string, token: AccessToken): Promise<void>;
+  getAccessToken(userId: string, url: string): Promise<AccessToken | null>;
+  saveAccessToken(userId: string, url: string, token: AccessToken): Promise<void>;
 }
 
 export type TokenData = {

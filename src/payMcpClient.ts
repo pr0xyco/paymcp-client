@@ -14,7 +14,10 @@ export class PayMcpClient {
   }
 
   protected handleAuthFailure = async (oauthError: OAuthAuthenticationRequiredError): Promise<string> => {
-    const authorizationUrl = await this.oauthClient.makeAuthorizationUrl(oauthError.resourceServerUrl);
+    const authorizationUrl = await this.oauthClient.makeAuthorizationUrl(
+      oauthError.url, 
+      oauthError.resourceServerUrl
+    );
 
     if (authorizationUrl.searchParams.get('payMcp') !== '1') {
       console.log(`PayMCP: authorization url was not a PayMcp url, aborting: ${authorizationUrl}`);

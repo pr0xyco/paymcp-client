@@ -5,7 +5,8 @@ import { OAuthGlobalClient } from './oAuthGlobalClient';
 
 export class OAuthAuthenticationRequiredError extends Error {
   constructor(
-    public readonly resourceServerUrl: string,
+    public readonly url: string,
+    public readonly resourceServerUrl: string
   ) {
     super(`OAuth authentication required: ${resourceServerUrl}`);
     this.name = 'OAuthAuthenticationRequiredError';
@@ -59,18 +60,18 @@ export class OAuthClient extends OAuthGlobalClient {
           console.log(`No resource server url found in response www-authenticate header, falling back to the called url (this could be incorrect if the called server is just proxying back an oauth failure)`);
           resourceServerUrl = OAuthClient.trimToPath(url);
         }
-        console.log(`Throwing OAuthAuthenticationRequiredError for ${resourceServerUrl}`);
-        throw new OAuthAuthenticationRequiredError(resourceServerUrl);
+        console.log(`Throwing OAuthAuthenticationRequiredError for ${OAuthClient.trimToPath(url)} accessing ${resourceServerUrl}`);
+        throw new OAuthAuthenticationRequiredError(OAuthClient.trimToPath(url), resourceServerUrl);
       }
     }
   
     return response;
   }
 
-  makeAuthorizationUrl = async (resourceServerUrl: string): Promise<URL> => {
+  makeAuthorizationUrl = async (url: string, resourceServerUrl: string): Promise<URL> => {
     const authorizationServer = await this.getAuthorizationServer(resourceServerUrl);
     const credentials = await this.getClientCredentials(authorizationServer);
-    const pkceValues = await this.generatePKCE(resourceServerUrl);
+    const pkceValues = await this.generatePKCE(url, resourceServerUrl);
 
     const authorizationUrl = new URL(authorizationServer.authorization_endpoint || '');
     authorizationUrl.searchParams.set('client_id', credentials.clientId);
@@ -91,7 +92,7 @@ export class OAuthClient extends OAuthGlobalClient {
     if (!state) {
       throw new Error('No state parameter found in callback URL');
     }
-    
+
     // Get the PKCE values and resource server URL from the database using the state
     const pkceValues = await this.db.getPKCEValues(this.userId, state);
     if (!pkceValues) {
@@ -119,7 +120,7 @@ export class OAuthClient extends OAuthGlobalClient {
     );
 
     // Exchange the code for tokens
-    await this.exchangeCodeForToken(authResponse, state, pkceValues, authorizationServer);
+    await this.exchangeCodeForToken(authResponse, pkceValues, authorizationServer);
   }
 
   override getRegistrationMetadata = async (): Promise<Partial<oauth.OmitSymbolProperties<oauth.Client>>> => {
@@ -145,7 +146,7 @@ export class OAuthClient extends OAuthGlobalClient {
     return clientMetadata;
   }
 
-  protected generatePKCE = async (resourceServerUrl: string): Promise<{
+  protected generatePKCE = async (url: string, resourceServerUrl: string): Promise<{
     codeVerifier: string;
     codeChallenge: string;
     state: string;
@@ -161,6 +162,7 @@ export class OAuthClient extends OAuthGlobalClient {
     
     // Save the PKCE values in the database
     await this.db.savePKCEValues(this.userId, state, {
+      url,
       codeVerifier,
       codeChallenge,
       resourceServerUrl
@@ -194,13 +196,12 @@ export class OAuthClient extends OAuthGlobalClient {
 
   protected exchangeCodeForToken = async (
     authResponse: URLSearchParams,
-    state: string,
     pkceValues: PKCEValues,
     authorizationServer: oauth.AuthorizationServer
   ): Promise<string> => {
-    console.log(`Exchanging code for tokens with state: ${state}`);
+    console.log(`Exchanging code for tokens`);
     
-    const { codeVerifier, resourceServerUrl } = pkceValues;
+    const { codeVerifier, url, resourceServerUrl } = pkceValues;
     
     // Get the client credentials
     let credentials = await this.getClientCredentials(authorizationServer);
@@ -221,7 +222,8 @@ export class OAuthClient extends OAuthGlobalClient {
     );
     
     // Save the access token in the database
-    await this.db.saveAccessToken(this.userId, resourceServerUrl, {
+    await this.db.saveAccessToken(this.userId, url, {
+      resourceServerUrl,
       accessToken: result.access_token,
       refreshToken: result.refresh_token,
       expiresAt: result.expires_in 
@@ -234,22 +236,23 @@ export class OAuthClient extends OAuthGlobalClient {
 
   protected getAccessToken = async (url: string): Promise<AccessToken | null> => {
     // Get the access token from the database
-    let resourceServerUrl = OAuthClient.trimToPath(url);
-    let parentPath = OAuthClient.getParentPath(resourceServerUrl);
-    let tokenData = await this.db.getAccessToken(this.userId, resourceServerUrl);
+    url = OAuthClient.trimToPath(url);
+    let parentPath = OAuthClient.getParentPath(url);
+    let tokenData = await this.db.getAccessToken(this.userId, url);
     // If there's no token for the requested path, see if there's one for the parent
     // TODO: re-evaluate if we should recurse up to parent paths to find tokens
     // IIRC this is mainly to support SSE transport's separate /mcp and /mcp/message paths
     while (!tokenData && parentPath){
-      console.log(`No access token found for ${resourceServerUrl}, trying parent ${parentPath}`);
+      console.log(`No access token found for ${url}, trying parent ${parentPath}`);
       tokenData = await this.db.getAccessToken(this.userId, parentPath);
       parentPath = OAuthClient.getParentPath(parentPath);
     }
     return tokenData;
   }
 
-  protected tryRefreshToken = async (resourceServerUrl: string): Promise<AccessToken | null> => {
-    let token = await this.getAccessToken(resourceServerUrl);
+  protected tryRefreshToken = async (url: string): Promise<AccessToken | null> => {
+    url = OAuthClient.trimToPath(url);
+    let token = await this.getAccessToken(url);
     if (!token) {
       console.log('No token found, cannot refresh');
       return null;
@@ -258,7 +261,7 @@ export class OAuthClient extends OAuthGlobalClient {
       console.log('No refresh token found, cannot refresh');
       return null;
     }
-    const authorizationServer = await this.getAuthorizationServer(resourceServerUrl);
+    const authorizationServer = await this.getAuthorizationServer(token.resourceServerUrl);
     const credentials = await this.getClientCredentials(authorizationServer);
     const [client, clientAuth] = this.makeOAuthClientAndAuth(credentials);
 
@@ -275,13 +278,14 @@ export class OAuthClient extends OAuthGlobalClient {
 
     const result = await oauth.processRefreshTokenResponse(authorizationServer, client, response)
     const at = {
+      resourceServerUrl: token.resourceServerUrl,
       accessToken: result.access_token,
       refreshToken: result.refresh_token,
       expiresAt: result.expires_in 
         ? Date.now() + result.expires_in * 1000
         : undefined
     };
-    await this.db.saveAccessToken(this.userId, resourceServerUrl, at);
+    await this.db.saveAccessToken(this.userId, url, at);
     return at;
   }
 

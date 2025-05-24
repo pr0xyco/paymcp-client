@@ -1,60 +1,63 @@
-import type { PaymentMaker, FetchLike, OAuthClientDb } from './types.js';
-import { OAuthClient, OAuthAuthenticationRequiredError } from './oauthClient.js';
+import type { PaymentMaker, FetchLike, OAuthDb } from './types.js';
+import { OAuthClient, OAuthAuthenticationRequiredError } from './oAuthClient.js';
 import { BigNumber } from 'bignumber.js';
 
 export class PayMcpClient {
-  private oauthClient: OAuthClient;
-  private paymentMakers: Map<string, PaymentMaker>;
-  private fetchFn: FetchLike;
+  protected oauthClient: OAuthClient;
+  protected paymentMakers: Map<string, PaymentMaker>;
+  protected fetchFn: FetchLike;
 
-  constructor(db: OAuthClientDb, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
-    // We'll always use the paymcp://mcp redirect URI, because this client
-    // should never actually require a callback. Instead, we detect the oauth
-    // challenge, make a payment, and then directly invoke the oauth flow.
-    this.oauthClient = new OAuthClient(db, 'paymcp://mcp', isPublic, fetchFn, strict);
+  constructor(userId: string, db: OAuthDb, callbackUrl: string, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
+    this.oauthClient = new OAuthClient(userId, db, callbackUrl, isPublic, fetchFn, strict);
     this.paymentMakers = new Map(Object.entries(paymentMakers));
     this.fetchFn = fetchFn;
   }
 
-  private handleAuthFailure = async (oauthError: OAuthAuthenticationRequiredError): Promise<string> => {
-    if (oauthError.authorizationUrl.searchParams.get('payMcp') !== '1') {
-        console.log(`PayMCP: authorization url was not a PayMcp url, aborting: ${oauthError.authorizationUrl}`);
-        throw oauthError;
+  protected handleAuthFailure = async (oauthError: OAuthAuthenticationRequiredError): Promise<string> => {
+    const authorizationUrl = await this.oauthClient.makeAuthorizationUrl(
+      oauthError.url, 
+      oauthError.resourceServerUrl
+    );
+
+    if (authorizationUrl.searchParams.get('payMcp') !== '1') {
+      console.log(`PayMCP: authorization url was not a PayMcp url, aborting: ${authorizationUrl}`);
+      throw oauthError;
     }
 
-    const requestedNetwork = oauthError.authorizationUrl.searchParams.get('network');
+    const requestedNetwork = authorizationUrl.searchParams.get('network');
     if (!requestedNetwork) {
-        throw new Error(`Payment network not provided`);
+      throw new Error(`Payment network not provided`);
+    }
+
+    const destination = authorizationUrl.searchParams.get('destination');
+    if (!destination) {
+      throw new Error(`destination not provided`);
+    }
+
+    let amount = new BigNumber(0);
+    if (!authorizationUrl.searchParams.get('amount')) {
+      throw new Error(`amount not provided`);
+    }
+    try{
+      amount = new BigNumber(authorizationUrl.searchParams.get('amount')!);
+    } catch (e) {
+      throw new Error(`Invalid amount ${authorizationUrl.searchParams.get('amount')}`);
+    }
+
+    const currency = authorizationUrl.searchParams.get('currency');
+    if (!currency) {
+      throw new Error(`Currency not provided`);
+    }
+
+    const codeChallenge = authorizationUrl.searchParams.get('code_challenge');
+    if (!codeChallenge) {
+      throw new Error(`Code challenge not provided`);
     }
 
     const paymentMaker = this.paymentMakers.get(requestedNetwork);
     if (!paymentMaker) {
-      throw new Error(`Payment network ${requestedNetwork} not found`);
-    }
-
-    const destination = oauthError.authorizationUrl.searchParams.get('destination');
-    if (!destination) {
-        throw new Error(`destination not provided`);
-    }
-
-    let amount = new BigNumber(0);
-    if (!oauthError.authorizationUrl.searchParams.get('amount')) {
-      throw new Error(`amount not provided`);
-    }
-    try{
-        amount = new BigNumber(oauthError.authorizationUrl.searchParams.get('amount')!);
-    } catch (e) {
-        throw new Error(`Invalid amount ${oauthError.authorizationUrl.searchParams.get('amount')}`);
-    }
-
-    const currency = oauthError.authorizationUrl.searchParams.get('currency');
-    if (!currency) {
-        throw new Error(`Currency not provided`);
-    }
-
-    const codeChallenge = oauthError.authorizationUrl.searchParams.get('code_challenge');
-    if (!codeChallenge) {
-        throw new Error(`Code challenge not provided`);
+      console.log(`PayMCP: payment network ${requestedNetwork} not set up for this server (available: ${Array.from(this.paymentMakers.keys()).join(', ')}) - re-throwing so it can be chained to the caller (if any)`);
+      throw oauthError;
     }
 
     const paymentId = await paymentMaker.makePayment(amount, currency, destination);
@@ -67,9 +70,11 @@ export class PayMcpClient {
     // prevent re-use of the token (since the codeChallenge is going to be unique per auth request).
     const authToken = Buffer.from(`${paymentId}:${signature}`).toString('base64');
 
-    // Make a fetch call to the authorization URL with the payment ID as a cookie
-    const response = await this.fetchFn(oauthError.authorizationUrl.toString(), {
+    // Make a fetch call to the authorization URL with the payment ID
+    console.log(`PayMCP: fetching authorization URL ${authorizationUrl.toString()} with auth token ${authToken}`);
+    const response = await this.fetchFn(authorizationUrl.toString(), {
       method: 'GET',
+      redirect: 'manual',
       headers: {
         'Authorization': `Bearer ${authToken}`
       }
@@ -95,7 +100,7 @@ export class PayMcpClient {
     } catch (error: unknown) {
       // If we get an OAuth authentication required error, handle it
       if (error instanceof OAuthAuthenticationRequiredError) {
-        console.log('OAuth authentication required - PayMCP client starting payment flow');
+        console.log(`OAuth authentication required - PayMCP client starting payment flow for ${error.resourceServerUrl}`);
         // Get the redirect URL for authentication
         const redirectUrl = await this.handleAuthFailure(error);
         

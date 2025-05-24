@@ -14,38 +14,28 @@ export type ClientCredentials = {
 export type PKCEValues = {
   codeVerifier: string,
   codeChallenge: string,
-  resourceServerUrl: string
+  resourceServerUrl: string,
+  url: string
 };
 
 export type AccessToken = {
   accessToken: string,
   refreshToken?: string,
-  expiresAt?: number
+  expiresAt?: number,
+  resourceServerUrl: string
 };
 
-export interface OAuthClientDb {
-  getClientCredentials(resourceServerUrl: string): Promise<ClientCredentials | null>;
-
-  saveClientCredentials(
-    resourceServerUrl: string,
-    credentials: ClientCredentials
-  ): Promise<void>;
-
-  getPKCEValues(state: string): Promise<PKCEValues | null>;
-
-  savePKCEValues(
-    state: string,
-    values: PKCEValues
-  ): Promise<void>;
-
-  getAccessToken(resourceServerUrl: string): Promise<AccessToken | null>;
-
-  saveAccessToken(
-    resourceServerUrl: string,
-    token: AccessToken
-  ): Promise<void>;
-
+export interface OAuthGlobalDb {
+  getClientCredentials(serverUrl: string): Promise<ClientCredentials | null>;
+  saveClientCredentials(serverUrl: string, credentials: ClientCredentials): Promise<void>;
   close(): Promise<void>;
+}
+
+export interface OAuthDb extends OAuthGlobalDb {
+  getPKCEValues(userId: string, state: string): Promise<PKCEValues | null>;
+  savePKCEValues(userId: string, state: string, values: PKCEValues): Promise<void>;
+  getAccessToken(userId: string, url: string): Promise<AccessToken | null>;
+  saveAccessToken(userId: string, url: string, token: AccessToken): Promise<void>;
 }
 
 export type TokenData = {
@@ -55,8 +45,4 @@ export type TokenData = {
   aud?: string|string[],
 }
 
-export type FetchLike = (url: string, init?: {
-  method?: string;
-  headers?: Record<string, string>;
-  body?: any;
-}) => Promise<Response>;
+export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;

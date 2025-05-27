@@ -12,7 +12,9 @@ export class OAuthGlobalClient {
   // safe, or a confidential client, which can.
   protected isPublic: boolean;
 
-  constructor(globalDb: OAuthGlobalDb, callbackUrl: string, isPublic: boolean, fetchFn: FetchLike = fetch, strict: boolean = true) {
+  constructor(globalDb: OAuthGlobalDb, callbackUrl: string = 'http://localhost:3000/unused-dummy-global-callback', isPublic: boolean = false, fetchFn: FetchLike = fetch, strict: boolean = true) {
+    // Default values above are appropriate for a global client used directly. Subclasses should override these,
+    // because things like the callbackUrl will actually be important for them
     this.globalDb = globalDb;
     this.callbackUrl = callbackUrl;
     this.isPublic = isPublic;
@@ -32,9 +34,9 @@ export class OAuthGlobalClient {
     return res === url ? null : res;
   }
 
-  introspectToken = async (resourceServerUrl: string, token: string, additionalParameters?: Record<string, string>): Promise<TokenData> => {
-    resourceServerUrl = this.normalizeResourceServerUrl(resourceServerUrl);
-    const authorizationServer = await this.getAuthorizationServer(resourceServerUrl);
+  introspectToken = async (authorizationServerUrl: string, token: string, additionalParameters?: Record<string, string>): Promise<TokenData> => {
+    // Don't use getAuthorizationServer here, because we're not using the resource server url
+    const authorizationServer = await this.authorizationServerFromUrl(new URL(authorizationServerUrl));
     // When introspecting a token, the "resource" server that we want credentials for is the auth server
     let clientCredentials = await this.getClientCredentials(authorizationServer);
 
@@ -96,17 +98,6 @@ export class OAuthGlobalClient {
     };
   }
 
-
-  protected normalizeResourceServerUrl = (resourceServerUrl: string): string => {
-    // the url might be EITHER:
-    // 1. the PRM URL (when it's received from the www-authenticate header or a PRM response conforming to RFC 9728)
-    // 2. the resource url itself (when we're using the resource url itself)
-    // We standardize on the resource url itself, so that we can store it in the DB and all the rest of the plumbing 
-    // doesn't have to worry about the difference between the two.
-    const res = resourceServerUrl.replace('/.well-known/oauth-protected-resource', '');
-    return res;
-  }
-
   getAuthorizationServer = async (resourceServerUrl: string): Promise<oauth.AuthorizationServer> => {
     resourceServerUrl = this.normalizeResourceServerUrl(resourceServerUrl);
     console.log(`Fetching authorization server configuration for resource server ${resourceServerUrl}`);
@@ -148,6 +139,20 @@ export class OAuthGlobalClient {
 
       console.log(`Found authorization server URL: ${authServer}`);
       const authServerUrl = new URL(authServer);
+      const res = await this.authorizationServerFromUrl(authServerUrl);
+      return res;
+    } catch (error: any) {
+      console.log(`Error fetching authorization server configuration: ${error}`);
+      throw error;
+    }
+  }
+
+  protected authorizationServerFromUrl = async (authServerUrl: URL): Promise<oauth.AuthorizationServer> => {
+    try {
+      // Explicitly throw for a tricky edge case to trigger tests
+      if (authServerUrl.toString().includes('/.well-known/oauth-protected-resource')) {
+        throw new Error('Authorization server URL is a PRM URL, which is not supported. It must be an AS URL.');
+      }
 
       // Now, get the authorization server metadata
       const response = await oauth.discoveryRequest(authServerUrl, {
@@ -161,6 +166,16 @@ export class OAuthGlobalClient {
       console.log(`Error fetching authorization server configuration: ${error}`);
       throw error;
     }
+  }
+
+  protected normalizeResourceServerUrl = (resourceServerUrl: string): string => {
+    // the url might be EITHER:
+    // 1. the PRM URL (when it's received from the www-authenticate header or a PRM response conforming to RFC 9728)
+    // 2. the resource url itself (when we're using the resource url itself)
+    // We standardize on the resource url itself, so that we can store it in the DB and all the rest of the plumbing 
+    // doesn't have to worry about the difference between the two.
+    const res = resourceServerUrl.replace('/.well-known/oauth-protected-resource', '');
+    return res;
   }
 
   protected getRegistrationMetadata = async (): Promise<Partial<oauth.OmitSymbolProperties<oauth.Client>>> => {

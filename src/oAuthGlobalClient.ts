@@ -103,7 +103,8 @@ export class OAuthGlobalClient {
 
       const prmResponse = await oauth.resourceDiscoveryRequest(resourceUrl, {
         [oauth.customFetch]: this.fetchFn,
-        [oauth.allowInsecureRequests]: this.allowInsecureRequests
+        [oauth.allowInsecureRequests]: this.allowInsecureRequests,
+        headers: {'Cache-Control': 'no-cache'}
       });
 
       const fallbackToRsAs = !this.strict && prmResponse.status === 404;
@@ -140,6 +141,7 @@ export class OAuthGlobalClient {
         algorithm: 'oauth2',
         [oauth.customFetch]: this.fetchFn,
         [oauth.allowInsecureRequests]: this.allowInsecureRequests,
+        headers: {'Cache-Control': 'no-cache'}
       });
       const authorizationServer = await oauth.processDiscoveryResponse(authServerUrl, response);
       return authorizationServer;

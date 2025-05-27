@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { requireOAuthUser } from '../auth.js';
 import httpMocks from 'node-mocks-http';
 import { SqliteOAuthDb } from '../oAuthDb.js';
-import { OAuthClient } from '../oAuthClient.js';
+import { OAuthClient } from '../oauthClient.js';
 import { mockAuthorizationServer, mockResourceServer } from './testHelpers';
 import fetchMock from 'fetch-mock';
 
@@ -36,7 +36,7 @@ describe('requireOAuthAuthUser', () => {
     expect(user).toBeUndefined();
     expect(res.statusCode).toEqual(401);
     expect(res._getData().toString()).toContain("No token provided");
-    expect(res._getHeaders()['www-authenticate']).toEqual('https://example.com/.well-known/oauth-protected-resource');
+    expect(res._getHeaders()['www-authenticate']).toEqual('Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"');
   });
 
   it('should set Protected Resource Metadata URL to path matching the request path', async () => {
@@ -55,7 +55,7 @@ describe('requireOAuthAuthUser', () => {
     expect(user).toBeUndefined();
     expect(res.statusCode).toEqual(401);
     expect(res._getData().toString()).toContain("No token provided");
-    expect(res._getHeaders()['www-authenticate']).toEqual('https://example.com/.well-known/oauth-protected-resource/mypath');
+    expect(res._getHeaders()['www-authenticate']).toEqual('Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource/mypath"');
   });
 
   it('should return undefined when authorization header does not start with Bearer', async () => {

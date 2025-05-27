@@ -36,7 +36,7 @@ export function requireOAuthUser(resourceServerUrl: string, oauthClient: OAuthGl
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       console.log('[auth] No authorization header found');
       // Set the WWW-Authenticate header for 401 responses as per PRM spec
-      res.set('WWW-Authenticate', protectedResourceMetadataUrl);
+      res.set('WWW-Authenticate', `Bearer resource_metadata="${protectedResourceMetadataUrl}"`);
       res.status(401).json({ error: 'invalid_request', error_description: 'No token provided' });
       return undefined;
     }
@@ -64,7 +64,7 @@ export function requireOAuthUser(resourceServerUrl: string, oauthClient: OAuthGl
       
       if (!introspectionResult.active) {
         console.log('[auth] Token is not active');
-        res.set('WWW-Authenticate', protectedResourceMetadataUrl);
+        res.set('WWW-Authenticate', `Bearer resource_metadata="${protectedResourceMetadataUrl}"`);
         res.status(401).json({ error: 'invalid_token', error_description: 'Token is not active' });
         return undefined;
       }

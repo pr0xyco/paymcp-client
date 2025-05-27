@@ -8,7 +8,7 @@ export class OAuthAuthenticationRequiredError extends Error {
     public readonly url: string,
     public readonly resourceServerUrl: string
   ) {
-    super(`OAuth authentication required: ${resourceServerUrl}`);
+    super(`OAuth authentication required. Resource server url: ${resourceServerUrl}`);
     this.name = 'OAuthAuthenticationRequiredError';
   }
 }
@@ -23,15 +23,21 @@ export class OAuthClient extends OAuthGlobalClient {
     this.userId = userId;
   }
 
-  protected resourceServerRequired = (response: Response): string | null => {
+  protected extractResourceUrl = (response: Response): string | null => {
     if (response.status !== 401) {
       return null;
     }
-    const wwwAuthenticate = response.headers.get('www-authenticate') || '';
-    if (URL.canParse(wwwAuthenticate)) {
-      return wwwAuthenticate;
+    const header = response.headers.get('www-authenticate') || '';
+    let wwwAuthenticate = header || '';
+    const match = header.match(/^Bearer resource_metadata="([^"]+)"$/);
+    if (match) {
+      wwwAuthenticate = match[1];
     }
-    return null;
+    if (!URL.canParse(wwwAuthenticate)) {
+      console.log(`Invalid resource metadata header: ${header}`);
+      return null;
+    }
+    return this.normalizeResourceServerUrl(wwwAuthenticate);
   }
 
   fetch: FetchLike = async (url, init) => {
@@ -40,38 +46,42 @@ export class OAuthClient extends OAuthGlobalClient {
     if (response.status === 401) {
       console.log('Received 401 Unauthorized status');
 
-      let resourceServerUrl = this.resourceServerRequired(response);
+      let resourceUrl = this.extractResourceUrl(response);
+      const calledUrl = OAuthClient.trimToPath(url);
       // If the response indicates an expired token, try to refresh it
       if (response.headers.get('www-authenticate')?.includes('error="invalid_grant"')) {
-        // TODO: We're assuming here that the url we're fetching from IS the resource server
-        // That's not always true
-        const calledServer = OAuthClient.trimToPath(url);
-        console.log(`Response includes invalid_grant error, attempting to refresh token from ${calledServer}`);
-        const newToken = await this.tryRefreshToken(calledServer);
+        console.log(`Response includes invalid_grant error, attempting to refresh token for ${resourceUrl}`);
+        let refreshUrl = resourceUrl;
+        if (!refreshUrl) {
+          console.log(`Refresh: No resource url found in response www-authenticate header, falling back to the called url ${calledUrl} (this could be incorrect if the called server is just proxying back an oauth failure)`);
+          refreshUrl = calledUrl;
+        }
+        const newToken = await this.tryRefreshToken(refreshUrl);
         if(newToken) {
           response = await this._doFetch(url, init);
-          resourceServerUrl = this.resourceServerRequired(response);
+          resourceUrl = this.extractResourceUrl(response);
         }
       }
 
       if (response.status === 401) /* still */ {
         // If we couldn't get a valid resourceServerUrl from wwwAuthenticate, use the original URL
-        if (!resourceServerUrl) {
-          console.log(`No resource server url found in response www-authenticate header, falling back to the called url (this could be incorrect if the called server is just proxying back an oauth failure)`);
-          resourceServerUrl = OAuthClient.trimToPath(url);
+        if (!resourceUrl) {
+          console.log(`No resource url found in response www-authenticate header, falling back to the called url ${calledUrl} (this could be incorrect if the called server is just proxying back an oauth failure)`);
+          resourceUrl = calledUrl;
         }
-        console.log(`Throwing OAuthAuthenticationRequiredError for ${OAuthClient.trimToPath(url)} accessing ${resourceServerUrl}`);
-        throw new OAuthAuthenticationRequiredError(OAuthClient.trimToPath(url), resourceServerUrl);
+        console.log(`Throwing OAuthAuthenticationRequiredError for ${calledUrl}, resource: ${resourceUrl}`);
+        throw new OAuthAuthenticationRequiredError(calledUrl, resourceUrl);
       }
     }
   
     return response;
   }
 
-  makeAuthorizationUrl = async (url: string, resourceServerUrl: string): Promise<URL> => {
-    const authorizationServer = await this.getAuthorizationServer(resourceServerUrl);
+  makeAuthorizationUrl = async (url: string, resourceUrl: string): Promise<URL> => {
+    resourceUrl = this.normalizeResourceServerUrl(resourceUrl);
+    const authorizationServer = await this.getAuthorizationServer(resourceUrl);
     const credentials = await this.getClientCredentials(authorizationServer);
-    const pkceValues = await this.generatePKCE(url, resourceServerUrl);
+    const pkceValues = await this.generatePKCE(url, resourceUrl);
 
     const authorizationUrl = new URL(authorizationServer.authorization_endpoint || '');
     authorizationUrl.searchParams.set('client_id', credentials.clientId);
@@ -100,7 +110,7 @@ export class OAuthClient extends OAuthGlobalClient {
     }
     
     // Get the authorization server configuration
-    const authorizationServer = await this.getAuthorizationServer(pkceValues.resourceServerUrl);
+    const authorizationServer = await this.getAuthorizationServer(pkceValues.resourceUrl);
 
     // Get the client credentials
     const credentials = await this.getClientCredentials(authorizationServer);
@@ -146,11 +156,12 @@ export class OAuthClient extends OAuthGlobalClient {
     return clientMetadata;
   }
 
-  protected generatePKCE = async (url: string, resourceServerUrl: string): Promise<{
+  protected generatePKCE = async (url: string, resourceUrl: string): Promise<{
     codeVerifier: string;
     codeChallenge: string;
     state: string;
   }> => {
+    resourceUrl = this.normalizeResourceServerUrl(resourceUrl);
     // Generate a random code verifier
     const codeVerifier = oauth.generateRandomCodeVerifier();
     
@@ -165,7 +176,7 @@ export class OAuthClient extends OAuthGlobalClient {
       url,
       codeVerifier,
       codeChallenge,
-      resourceServerUrl
+      resourceUrl
     });
     
     console.log(`Generated PKCE values with state: ${state}`);
@@ -201,7 +212,7 @@ export class OAuthClient extends OAuthGlobalClient {
   ): Promise<string> => {
     console.log(`Exchanging code for tokens`);
     
-    const { codeVerifier, url, resourceServerUrl } = pkceValues;
+    const { codeVerifier, url, resourceUrl } = pkceValues;
     
     // Get the client credentials
     let credentials = await this.getClientCredentials(authorizationServer);
@@ -223,7 +234,7 @@ export class OAuthClient extends OAuthGlobalClient {
     
     // Save the access token in the database
     await this.db.saveAccessToken(this.userId, url, {
-      resourceServerUrl,
+      resourceUrl,
       accessToken: result.access_token,
       refreshToken: result.refresh_token,
       expiresAt: result.expires_in 
@@ -261,7 +272,7 @@ export class OAuthClient extends OAuthGlobalClient {
       console.log('No refresh token found, cannot refresh');
       return null;
     }
-    const authorizationServer = await this.getAuthorizationServer(token.resourceServerUrl);
+    const authorizationServer = await this.getAuthorizationServer(token.resourceUrl);
     const credentials = await this.getClientCredentials(authorizationServer);
     const [client, clientAuth] = this.makeOAuthClientAndAuth(credentials);
 
@@ -278,7 +289,7 @@ export class OAuthClient extends OAuthGlobalClient {
 
     const result = await oauth.processRefreshTokenResponse(authorizationServer, client, response)
     const at = {
-      resourceServerUrl: token.resourceServerUrl,
+      resourceUrl: token.resourceUrl,
       accessToken: result.access_token,
       refreshToken: result.refresh_token,
       expiresAt: result.expires_in 

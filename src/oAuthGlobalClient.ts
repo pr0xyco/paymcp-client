@@ -33,6 +33,7 @@ export class OAuthGlobalClient {
   }
 
   introspectToken = async (resourceServerUrl: string, token: string, additionalParameters?: Record<string, string>): Promise<TokenData> => {
+    resourceServerUrl = this.normalizeResourceServerUrl(resourceServerUrl);
     const authorizationServer = await this.getAuthorizationServer(resourceServerUrl);
     // When introspecting a token, the "resource" server that we want credentials for is the auth server
     let clientCredentials = await this.getClientCredentials(authorizationServer);
@@ -95,8 +96,20 @@ export class OAuthGlobalClient {
     };
   }
 
+
+  protected normalizeResourceServerUrl = (resourceServerUrl: string): string => {
+    // the url might be EITHER:
+    // 1. the PRM URL (when it's received from the www-authenticate header or a PRM response conforming to RFC 9728)
+    // 2. the resource url itself (when we're using the resource url itself)
+    // We standardize on the resource url itself, so that we can store it in the DB and all the rest of the plumbing 
+    // doesn't have to worry about the difference between the two.
+    const res = resourceServerUrl.replace('/.well-known/oauth-protected-resource', '');
+    return res;
+  }
+
   getAuthorizationServer = async (resourceServerUrl: string): Promise<oauth.AuthorizationServer> => {
-    console.log(`Fetching authorization server configuration for ${resourceServerUrl}`);
+    resourceServerUrl = this.normalizeResourceServerUrl(resourceServerUrl);
+    console.log(`Fetching authorization server configuration for resource server ${resourceServerUrl}`);
     
     try {
       const resourceUrl = new URL(resourceServerUrl);
@@ -135,6 +148,7 @@ export class OAuthGlobalClient {
 
       console.log(`Found authorization server URL: ${authServer}`);
       const authServerUrl = new URL(authServer);
+
       // Now, get the authorization server metadata
       const response = await oauth.discoveryRequest(authServerUrl, {
         algorithm: 'oauth2',

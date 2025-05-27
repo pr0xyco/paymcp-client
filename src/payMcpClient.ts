@@ -1,5 +1,5 @@
 import type { PaymentMaker, FetchLike, OAuthDb } from './types.js';
-import { OAuthClient, OAuthAuthenticationRequiredError } from './oAuthClient.js';
+import { OAuthClient, OAuthAuthenticationRequiredError } from './oauthClient.js';
 import { BigNumber } from 'bignumber.js';
 
 export class PayMcpClient {
@@ -100,7 +100,7 @@ export class PayMcpClient {
     } catch (error: unknown) {
       // If we get an OAuth authentication required error, handle it
       if (error instanceof OAuthAuthenticationRequiredError) {
-        console.log(`OAuth authentication required - PayMCP client starting payment flow for ${error.resourceServerUrl}`);
+        console.log(`OAuth authentication required - PayMCP client starting payment flow for resource metadata ${error.resourceServerUrl}`);
         // Get the redirect URL for authentication
         const redirectUrl = await this.handleAuthFailure(error);
         

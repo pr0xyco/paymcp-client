@@ -26,7 +26,7 @@ function getOp(req: Request): string {
 //   The client will fetch the PRM document from this URL to determine the token introspection server URL,
 //   so if this service could receive requests for multiple resource servers, they implicitly all need
 //   to use the same authorization server
-export function requireOAuthUser(resourceServerUrl: string, oauthClient: OAuthGlobalClient, opPrices?: {[key:string]: number}): (req: Request, res: Response) => Promise<string | undefined> {
+export function requireOAuthUser(authorizationServerUrl: string, oauthClient: OAuthGlobalClient, opPrices?: {[key:string]: number}): (req: Request, res: Response) => Promise<string | undefined> {
   return async (req: Request, res: Response): Promise<string | undefined> => {
     const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
     const protectedResourceMetadataUrl = `${protocol}://${req.host}/.well-known/oauth-protected-resource${req.path}`;
@@ -60,7 +60,7 @@ export function requireOAuthUser(resourceServerUrl: string, oauthClient: OAuthGl
         additionalParameters = { charge: opPrices[op] || 0 };
       }
       console.log('[auth] Introspecting token for op:', op, 'with additional parameters:', additionalParameters);
-      const introspectionResult = await oauthClient.introspectToken(resourceServerUrl, token, additionalParameters);
+      const introspectionResult = await oauthClient.introspectToken(authorizationServerUrl, token, additionalParameters);
       
       if (!introspectionResult.active) {
         console.log('[auth] Token is not active');

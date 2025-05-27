@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { DEFAULT_ENCRYPTION_KEY_ENV_VAR, encrypt, decrypt } from '@longrun/crypto-utils/src/index';
+import { DEFAULT_ENCRYPTION_KEY_ENV_VAR, encrypt, decrypt } from './crypto-utils.js';
 import type { ClientCredentials, PKCEValues, AccessToken, OAuthDb } from './types';
 
 export class SqliteOAuthDb implements OAuthDb {

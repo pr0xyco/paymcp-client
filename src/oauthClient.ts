@@ -1,7 +1,7 @@
 import * as oauth from 'oauth4webapi';
 import { URL } from 'url';
 import { FetchLike, ClientCredentials, PKCEValues, AccessToken, OAuthDb} from './types';
-import { OAuthGlobalClient } from './oAuthGlobalClient';
+import { OAuthGlobalClient } from './oAuthGlobalClient.js';
 
 export class OAuthAuthenticationRequiredError extends Error {
   constructor(

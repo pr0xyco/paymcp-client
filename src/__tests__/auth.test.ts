@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { requireOAuthUser } from '../auth.js';
 import httpMocks from 'node-mocks-http';
 import { SqliteOAuthDb } from '../oAuthDb.js';
-import { OAuthClient } from '../oauthClient.js';
+import { OAuthClient } from '../oAuth.js';
 import { mockAuthorizationServer, mockResourceServer } from './testHelpers';
 import fetchMock from 'fetch-mock';
 

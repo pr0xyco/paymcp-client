@@ -1,5 +1,5 @@
 import { SqliteOAuthDb } from '../oAuthDb';
-import { OAuthClient, OAuthAuthenticationRequiredError } from '../oauthClient.js';
+import { OAuthClient, OAuthAuthenticationRequiredError } from '../oAuth.js';
 import { describe, it, expect } from 'vitest';
 import fetchMock from 'fetch-mock';
 import { FetchLike, OAuthDb } from '../types.js';

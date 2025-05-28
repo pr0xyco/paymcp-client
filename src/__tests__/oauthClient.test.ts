@@ -1,9 +1,9 @@
 import { SqliteOAuthDb } from '../oAuthDb';
-import { OAuthClient, OAuthAuthenticationRequiredError } from '../oAuthClient';
+import { OAuthClient, OAuthAuthenticationRequiredError } from '../oAuth.js';
 import { describe, it, expect } from 'vitest';
 import fetchMock from 'fetch-mock';
-import { FetchLike, OAuthDb } from '../types';
-import { mockResourceServer, mockAuthorizationServer } from './testHelpers';
+import { FetchLike, OAuthDb } from '../types.js';
+import { mockResourceServer, mockAuthorizationServer } from './testHelpers.js';
 
 function oauthClient(fetchFn: FetchLike, db?: OAuthDb, isPublic: boolean = false, strict: boolean = true, callbackUrl: string = 'https://example.com/mcp/callback') {
   return new OAuthClient(
@@ -44,16 +44,29 @@ describe('oauthClient', () => {
     });
 
     it('should throw OAuthAuthenticationRequiredError with resource server url from www-authenticate header for proxied requests', async () => {
-      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', {status: 401, headers: {'www-authenticate': 'https://something.else/mcp'}});
+      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 
+       {status: 401, headers: {'www-authenticate': 'https://something.else/.well-known/oauth-protected-resource/mcp'}});
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com');
 
       const client = oauthClient(f.fetchHandler);
-      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow('https://something.else/mcp');
+      await expect(client.fetch('https://example.com/mcp')).rejects.toThrow('OAuth authentication required. Resource server url: https://something.else/mcp');
+    });
+
+    it('should throw OAuthAuthenticationRequiredError with resource server url from updated www-authenticate header format', async () => {
+      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 
+        {status: 401, headers: {'www-authenticate': 'Bearer resource_metadata="https://something.else/.well-known/oauth-protected-resource/mcp"'}});
+      mockResourceServer(f, 'https://example.com', '/mcp');
+      mockAuthorizationServer(f, 'https://paymcp.com');
+
+      const client = oauthClient(f.fetchHandler);
+      await expect(client.fetch('https://example.com/mcp')).rejects
+        .toThrow('OAuth authentication required. Resource server url: https://something.else/mcp');
     });
 
     it('should store the url and resource server url for proxied requests', async () => {
-      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', {status: 401, headers: {'www-authenticate': 'https://something.else/mcp'}});
+      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 
+        {status: 401, headers: {'www-authenticate': 'Bearer resource_metadata="https://something.else/.well-known/oauth-protected-resource/mcp"'}});
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockResourceServer(f, 'https://something.else', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com');
@@ -72,14 +85,14 @@ describe('oauthClient', () => {
         const fromDb = await db.getPKCEValues('bdj', state);
         expect(fromDb).not.toBeNull();
         expect(fromDb?.url).toBe('https://example.com/mcp');
-        expect(fromDb?.resourceServerUrl).toBe('https://something.else/mcp');
+        expect(fromDb?.resourceUrl).toBe('https://something.else/mcp');
       }
     });
 
     it('should send token in request to resource server if one exists in the DB', async () => {
       const db = new SqliteOAuthDb(':memory:');
       db.saveAccessToken('bdj', 'https://example.com/mcp', {
-        resourceServerUrl: 'https://example.com/mcp',
+        resourceUrl: 'https://example.com/mcp',
         accessToken: 'test-access-token',
         expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30
       });
@@ -100,7 +113,7 @@ describe('oauthClient', () => {
       // environment. It's possible we'll have to revisit this slightly if servers are creating different
       // resources for both the /sse and /message endpoints
       db.saveAccessToken('bdj', 'https://example.com', {
-        resourceServerUrl: 'https://example.com',
+        resourceUrl: 'https://example.com',
         accessToken: 'test-access-token',
         expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30
       });
@@ -134,7 +147,7 @@ describe('oauthClient', () => {
     it('should use refresh token to get a new access token if the current one expires', async () => {
       const db = new SqliteOAuthDb(':memory:');
       const oldToken = {
-        resourceServerUrl: 'https://example.com/mcp',
+        resourceUrl: 'https://example.com/mcp',
         accessToken: 'oldAccessToken',
         // Expires in the future, but the server can invalidate tokens whenever it wants
         // regardless. Set the time in the future so future changes to the client don't
@@ -148,7 +161,7 @@ describe('oauthClient', () => {
         .getOnce('https://example.com/mcp', {
           status: 401,
           headers: {
-            'www-authenticate': 'Bearer error="invalid_grant", error_description="The refresh token has expired"'
+            'www-authenticate': 'Bearer error="invalid_grant", error_description="The token has expired"'
           }
         })
         .getOnce('https://example.com/mcp', 200);
@@ -187,7 +200,7 @@ describe('oauthClient', () => {
     it('should throw if the token refresh fails', async () => {
       const db = new SqliteOAuthDb(':memory:');
       const oldToken = {
-        resourceServerUrl: 'https://example.com/mcp',
+        resourceUrl: 'https://example.com/mcp',
         accessToken: 'oldAccessToken',
         // Expires in the future, but the server can invalidate tokens whenever it wants
         // regardless. Set the time in the future so future changes to the client don't
@@ -343,7 +356,8 @@ describe('oauthClient', () => {
   describe('.handleCallback', () => {
     it('should exchange code for token', async () => {
       const db = new SqliteOAuthDb(':memory:');
-      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 401);
+      const f = fetchMock.createInstance().getOnce('https://example.com/mcp', 
+        {status: 401, headers: {'www-authenticate': 'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource/mcp"'}});
       mockResourceServer(f, 'https://example.com', '/mcp');
       mockAuthorizationServer(f, 'https://paymcp.com');
 
@@ -429,7 +443,7 @@ describe('oauthClient', () => {
         url: 'https://example.com/mcp',
         codeVerifier: 'test-code-verifier',
         codeChallenge: 'test-code-challenge',
-        resourceServerUrl: 'https://example.com/mcp'
+        resourceUrl: 'https://example.com/mcp'
       });
       // Do NOT save client credentials, or do the OAuth flow to create them
 
@@ -459,7 +473,7 @@ describe('oauthClient', () => {
         url: 'https://example.com/mcp',
         codeVerifier: 'test-code-verifier',
         codeChallenge: 'test-code-challenge',
-        resourceServerUrl: 'https://example.com/mcp'
+        resourceUrl: 'https://example.com/mcp'
       });
       // Save old credentials
       db.saveClientCredentials('https://example.com/mcp', {
@@ -483,7 +497,7 @@ describe('oauthClient', () => {
         url: 'https://example.com/mcp',
         codeVerifier: 'test-code-verifier',
         codeChallenge: 'test-code-challenge',
-        resourceServerUrl: 'https://example.com/mcp'
+        resourceUrl: 'https://example.com/mcp'
       });
       const f = fetchMock.createInstance();
       mockResourceServer(f, 'https://example.com', '/mcp');

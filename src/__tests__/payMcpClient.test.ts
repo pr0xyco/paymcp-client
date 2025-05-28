@@ -1,5 +1,5 @@
 import { SqliteOAuthDb } from '../oAuthDb';
-import { OAuthAuthenticationRequiredError } from '../oAuthClient';
+import { OAuthAuthenticationRequiredError } from '../oAuth';
 import { describe, it, expect, vi } from 'vitest';
 import fetchMock from 'fetch-mock';
 import { mockResourceServer, mockAuthorizationServer } from './testHelpers';

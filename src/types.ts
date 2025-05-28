@@ -14,7 +14,7 @@ export type ClientCredentials = {
 export type PKCEValues = {
   codeVerifier: string,
   codeChallenge: string,
-  resourceServerUrl: string,
+  resourceUrl: string,
   url: string
 };
 
@@ -22,7 +22,7 @@ export type AccessToken = {
   accessToken: string,
   refreshToken?: string,
   expiresAt?: number,
-  resourceServerUrl: string
+  resourceUrl: string
 };
 
 export interface OAuthGlobalDb {

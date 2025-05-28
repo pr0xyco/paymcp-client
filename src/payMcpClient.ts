@@ -7,8 +7,11 @@ export class PayMcpClient {
   protected paymentMakers: Map<string, PaymentMaker>;
   protected fetchFn: FetchLike;
 
-  constructor(userId: string, db: OAuthDb, callbackUrl: string, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
-    this.oauthClient = new OAuthClient(userId, db, callbackUrl, isPublic, fetchFn, strict);
+  constructor(userId: string, db: OAuthDb, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
+    // PayMcpClient should never actually use the callback url - instead of redirecting the user to 
+    // an authorization url which redirects back to the callback url, PayMcpClient posts the payment
+    // directly to the authorization server, then does the token exchange itself
+    this.oauthClient = new OAuthClient(userId, db, 'http://localhost:3000/unused-dummy-paymcp-callback', isPublic, fetchFn, strict);
     this.paymentMakers = new Map(Object.entries(paymentMakers));
     this.fetchFn = fetchFn;
   }

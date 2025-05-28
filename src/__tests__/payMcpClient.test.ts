@@ -14,7 +14,6 @@ function payMcpClient(fetchFn: FetchLike, solanaPaymentMaker?: PaymentMaker, db?
   return new PayMcpClient(
     "bdj",
     db ?? new SqliteOAuthDb(':memory:'),
-    'http://localhost:3000',
     isPublic,
     {'solana': solanaPaymentMaker},
     fetchFn,

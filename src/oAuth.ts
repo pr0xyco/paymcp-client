@@ -172,14 +172,16 @@ export class OAuthClient extends OAuthGlobalClient {
     const state = oauth.generateRandomState();
     
     // Save the PKCE values in the database
-    await this.db.savePKCEValues(this.userId, state, {
+    const pkceValues = {
       url,
       codeVerifier,
       codeChallenge,
       resourceUrl
-    });
+    };
+    await this.db.savePKCEValues(this.userId, state, pkceValues);
     
     console.log(`Generated PKCE values with state: ${state}`);
+    console.log(pkceValues)
     return { codeVerifier, codeChallenge, state };
   }
 

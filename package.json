@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "cli": "tsx src/scripts/cli.ts"
+    "cli": "tsx src/scripts/cli.ts",
+    "cli:fetch": "tsx src/scripts/cli-fetch.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",

@@ -1,8 +1,7 @@
 import { PayMcpClient, SolanaPaymentMaker, SqliteOAuthDb } from '../index';
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import 'dotenv/config';
-import { CustomHTTPTransport } from '../customHttpTransport';
 
+// Parse command line arguments
 function parseArgs() {
   const args = process.argv.slice(2);
   const url = args[0] || 'https://browser-use.corp.pr0xy.co';
@@ -24,8 +23,8 @@ function parseArgs() {
 async function main() {
   console.log('Starting PayMcpClient example...');
   console.log('\nUsage:');
-  console.log('Via npm: npm run cli [url] [toolName] [arg1=value1] [arg2=value2]');
-  console.log('\nExample: npm run cli http://localhost:3001 checkBalance foo=bar\n');
+  console.log('Via npm: npm run cli:fetch [url] [toolName] [arg1=value1] [arg2=value2]');
+  console.log('\nExample: npm run cli:fetch http://localhost:3001 checkBalance foo=bar\n');
   console.log('--------------------------------');
   
   const { url, toolName, namedArgs } = parseArgs();
@@ -33,6 +32,7 @@ async function main() {
   if (Object.keys(namedArgs).length > 0) {
     console.log('With arguments:', namedArgs);
   }
+  console.log('--------------------------------');
   
   // Create a SQLite database instance
   const db = new SqliteOAuthDb(':memory:');
@@ -42,23 +42,30 @@ async function main() {
   const client = new PayMcpClient("local", db, true, {"solana": solana});
 
   try {
-    const mcpClient = new Client({
-      name: "paymcp-client cli",
-      version: "0.0.1"
-    }, {
-      capabilities: {}
-    });
-
-    const transport = new CustomHTTPTransport(client.fetch, new URL(url));
-    await mcpClient.connect(transport);
-
-    const res = await mcpClient.callTool({
-      name: toolName,
-      arguments: namedArgs
-    });
+    // Make a request to a protected resource
+    // This will automatically handle the OAuth flow if needed
+    const data = await client.fetch(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json, text/event-stream',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "arguments": namedArgs,
+            "name": toolName
+          }
+        })
+      }
+    );
     
-    console.log('Result:', res);
-
+    console.log('Response:', data);
+    console.log('Body:', await data.text());
   } catch (error) {
     if (error instanceof Error) {
       console.error('Error:', error.message);

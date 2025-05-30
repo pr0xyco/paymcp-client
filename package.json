@@ -1,6 +1,6 @@
 {
   "name": "@longrun/paymcp-client",
-  "version": "0.0.32",
+  "version": "0.0.33",
   "description": "PayMcp Client",
   "license": "MIT",
   "types": "./dist/index.d.ts",
@@ -15,15 +15,19 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cli": "tsx src/scripts/cli.ts",
+    "cli:fetch": "tsx src/scripts/cli-fetch.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
     "@solana/pay": "^0.2.5",
     "@solana/web3.js": "^1.98.1",
     "@types/express": "^5.0.0",
     "better-sqlite3": "^11.10.0",
     "bignumber.js": "^9.3.0",
     "bs58": "^6.0.0",
+    "dotenv": "^16.5.0",
     "express": "^5.0.0",
     "node-mocks-http": "^1.17.2",
     "oauth4webapi": "^3.5.0",

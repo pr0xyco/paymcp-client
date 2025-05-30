@@ -1,8 +1,39 @@
 import { PayMcpClient, SolanaPaymentMaker, SqliteOAuthDb } from '../index';
 import 'dotenv/config';
 
+// Parse command line arguments
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const url = args[0] || 'https://browser-use.corp.pr0xy.co';
+  const toolName = args[1] || 'checkBalance';
+  
+  // Parse named arguments
+  const namedArgs: Record<string, string> = {};
+  for (let i = 2; i < args.length; i++) {
+    const arg = args[i];
+    const [key, value] = arg.split('=');
+    if (key && value) {
+      namedArgs[key] = value;
+    }
+  }
+
+  return { url, toolName, namedArgs };
+}
+
 async function main() {
   console.log('Starting PayMcpClient example...');
+  console.log('\nUsage:');
+  console.log('Direct: ts-node src/scripts/cli.ts [url] [toolName] [arg1=value1] [arg2=value2]');
+  console.log('Via npm: npm run cli -- [url] [toolName] [arg1=value1] [arg2=value2]');
+  console.log('\nExample: npm run cli -- http://localhost:3001 checkBalance foo=bar\n');
+  console.log('--------------------------------');
+  
+  const { url, toolName, namedArgs } = parseArgs();
+  console.log(`Calling tool "${toolName}" at URL: ${url}`);
+  if (Object.keys(namedArgs).length > 0) {
+    console.log('With arguments:', namedArgs);
+  }
+  console.log('--------------------------------');
   
   // Create a SQLite database instance
   const db = new SqliteOAuthDb(':memory:');
@@ -15,7 +46,7 @@ async function main() {
     // Make a request to a protected resource
     // This will automatically handle the OAuth flow if needed
     const data = await client.fetch(
-      'http://localhost:3001',
+      url,
       {
         method: 'POST',
         headers: {
@@ -27,11 +58,8 @@ async function main() {
           "id": 1,
           "method": "tools/call",
           "params": {
-            "arguments": {
-              //"executionId": "development-paymcp-example-localhost-80661f45-ccb9-49f7-bd64-3e5ff0de8d55|asdfasdf"
-            },
-            //"name": "topHackerNewsStoriesWorkflow-results"
-            "name": "checkBalance" // browser-use
+            "arguments": namedArgs,
+            "name": toolName
           }
         })
       }

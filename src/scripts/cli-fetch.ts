@@ -1,6 +1,15 @@
 import { PayMcpClient, SolanaPaymentMaker, SqliteOAuthDb } from '../index';
 import 'dotenv/config';
 
+function validateEnv() {
+  const requiredVars = ['SOLANA_ENDPOINT', 'SOLANA_PRIVATE_KEY'];
+  const missing = requiredVars.filter(varName => !process.env[varName]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}\nPlease set them in your .env file or environment.`);
+  }
+}
+
 // Parse command line arguments
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -37,11 +46,13 @@ async function main() {
   // Create a SQLite database instance
   const db = new SqliteOAuthDb(':memory:');
   
-  // Create a new OAuth client
-  const solana = new SolanaPaymentMaker(process.env.SOLANA_ENDPOINT!, process.env.SOLANA_PRIVATE_KEY!);
-  const client = new PayMcpClient("local", db, true, {"solana": solana});
-
   try {
+    validateEnv();
+    
+    // Create a new OAuth client
+    const solana = new SolanaPaymentMaker(process.env.SOLANA_ENDPOINT!, process.env.SOLANA_PRIVATE_KEY!);
+    const client = new PayMcpClient("local", db, true, {"solana": solana});
+
     // Make a request to a protected resource
     // This will automatically handle the OAuth flow if needed
     const data = await client.fetch(

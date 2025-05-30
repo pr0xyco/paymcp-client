@@ -3,6 +3,15 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import 'dotenv/config';
 import { CustomHTTPTransport } from '../customHttpTransport';
 
+function validateEnv() {
+  const requiredVars = ['SOLANA_ENDPOINT', 'SOLANA_PRIVATE_KEY'];
+  const missing = requiredVars.filter(varName => !process.env[varName]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}\nPlease set them in your .env file or environment.`);
+  }
+}
+
 function parseArgs() {
   const args = process.argv.slice(2);
   const url = args[0] || 'https://browser-use.corp.pr0xy.co';
@@ -37,11 +46,13 @@ async function main() {
   // Create a SQLite database instance
   const db = new SqliteOAuthDb(':memory:');
   
-  // Create a new OAuth client
-  const solana = new SolanaPaymentMaker(process.env.SOLANA_ENDPOINT!, process.env.SOLANA_PRIVATE_KEY!);
-  const client = new PayMcpClient("local", db, true, {"solana": solana});
-
   try {
+    validateEnv();
+    
+    // Create a new OAuth client
+    const solana = new SolanaPaymentMaker(process.env.SOLANA_ENDPOINT!, process.env.SOLANA_PRIVATE_KEY!);
+    const client = new PayMcpClient("local", db, true, {"solana": solana});
+
     const mcpClient = new Client({
       name: "paymcp-client cli",
       version: "0.0.1"

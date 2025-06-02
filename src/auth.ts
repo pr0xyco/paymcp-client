@@ -37,7 +37,11 @@ export function requireOAuthUser(authorizationServerUrl: string, oauthClient: OA
       console.log('[auth] No authorization header found');
       // Set the WWW-Authenticate header for 401 responses as per PRM spec
       res.set('WWW-Authenticate', `Bearer resource_metadata="${protectedResourceMetadataUrl}"`);
-      res.status(401).json({ error: 'invalid_request', error_description: 'No token provided' });
+      res.status(401).json({
+        error: 'invalid_request',
+        error_description: 'No token provided',
+        www_authenticate: `Bearer resource_metadata="${protectedResourceMetadataUrl}"`
+      });
       return undefined;
     }
 

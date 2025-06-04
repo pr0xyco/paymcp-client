@@ -2,18 +2,44 @@ import { BigNumber } from 'bignumber.js';
 import { OAuthAuthenticationRequiredError, OAuthClient } from './oAuth';
 import type { FetchLike, OAuthDb, PaymentMaker } from './types';
 
+export interface PayMcpClientConfig {
+  userId: string;
+  db: OAuthDb;
+  isPublic: boolean;
+  paymentMakers: {[key: string]: PaymentMaker};
+  fetchFn?: FetchLike;
+  sideChannelFetch?: FetchLike;
+  strict?: boolean;
+}
+
 export class PayMcpClient {
   protected oauthClient: OAuthClient;
   protected paymentMakers: Map<string, PaymentMaker>;
-  protected fetchFn: FetchLike;
+  protected sideChannelFetch: FetchLike;
 
-  constructor(userId: string, db: OAuthDb, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
+  constructor({
+    userId,
+    db,
+    paymentMakers,
+    isPublic = false,
+    fetchFn = fetch,
+    sideChannelFetch = fetch,
+    strict = true
+  }: PayMcpClientConfig) {
     // PayMcpClient should never actually use the callback url - instead of redirecting the user to 
     // an authorization url which redirects back to the callback url, PayMcpClient posts the payment
     // directly to the authorization server, then does the token exchange itself
-    this.oauthClient = new OAuthClient(userId, db, 'http://localhost:3000/unused-dummy-paymcp-callback', isPublic, fetchFn, strict);
+    this.oauthClient = new OAuthClient({
+      userId,
+      db,
+      callbackUrl: 'http://localhost:3000/unused-dummy-paymcp-callback',
+      isPublic,
+      fetchFn,
+      sideChannelFetch,
+      strict
+    });
     this.paymentMakers = new Map(Object.entries(paymentMakers));
-    this.fetchFn = fetchFn;
+    this.sideChannelFetch = sideChannelFetch;
   }
 
   protected handleAuthFailure = async (oauthError: OAuthAuthenticationRequiredError): Promise<string> => {
@@ -85,7 +111,7 @@ export class PayMcpClient {
     // redirect URL (which might not even exist for agentic paymcp clients)
     //   So paymcp servers are set up to instead return a 200 with the redirect URL in the body
     // if we pass redirect=false.
-    const response = await this.fetchFn(authorizationUrl.toString()+'&redirect=false', {
+    const response = await this.sideChannelFetch(authorizationUrl.toString()+'&redirect=false', {
       method: 'GET',
       redirect: 'manual',
       headers: {

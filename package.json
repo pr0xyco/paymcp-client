@@ -31,6 +31,7 @@
     "express": "^5.0.0",
     "node-mocks-http": "^1.17.2",
     "oauth4webapi": "^3.5.0",
+    "react-native-url-polyfill": "^2.0.0",
     "tweetnacl": "^1.0.3",
     "tweetnacl-util": "^0.15.1"
   },

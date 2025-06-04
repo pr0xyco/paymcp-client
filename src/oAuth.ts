@@ -16,6 +16,7 @@ export class OAuthAuthenticationRequiredError extends Error {
   }
 }
 
+// TODO: fetchHack is required on React Native - I've commented it out, but it'll break
 /*const fetchHack = async (url: string, init: RequestInit) => {
   const resp1 = await expoFetch(url, init as any);
   const resp2 = new Response();

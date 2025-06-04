@@ -5,7 +5,6 @@ import type { FetchLike, OAuthDb, PaymentMaker } from './types';
 export interface PayMcpClientConfig {
   userId: string;
   db: OAuthDb;
-  isPublic: boolean;
   paymentMakers: {[key: string]: PaymentMaker};
   fetchFn?: FetchLike;
   sideChannelFetch?: FetchLike;
@@ -21,7 +20,6 @@ export class PayMcpClient {
     userId,
     db,
     paymentMakers,
-    isPublic = false,
     fetchFn = fetch,
     sideChannelFetch = fetch,
     strict = true
@@ -33,7 +31,7 @@ export class PayMcpClient {
       userId,
       db,
       callbackUrl: 'http://localhost:3000/unused-dummy-paymcp-callback',
-      isPublic,
+      isPublic: false,
       fetchFn,
       sideChannelFetch,
       strict

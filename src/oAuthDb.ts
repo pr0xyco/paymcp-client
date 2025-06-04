@@ -2,6 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import type { AccessToken, ClientCredentials, OAuthDb, PKCEValues } from './types';
 
 export interface OAuthDbConfig {
+  dbPathOrDb?: string | SQLite.SQLiteDatabase;
   encrypt: (data: string) => string;
   decrypt: (data: string) => string;
 }
@@ -12,11 +13,23 @@ export class SqliteOAuthDb implements OAuthDb {
   private encrypt: (data: string) => string;
   private decrypt: (data: string) => string;
 
+  static getDefaultDbPath(): string {
+    // TODO: Test default db path on React Native and on Node
+
+    //const dbDir = path.join(process.cwd(), 'db');
+    //if (!fs.existsSync(dbDir)) {
+      //fs.mkdirSync(dbDir, { recursive: true });
+    //}
+    //return path.join(dbDir, 'oauthClient.db');
+    return 'db/oauthClient.db';
+  }
+
   constructor({
+    dbPathOrDb = SqliteOAuthDb.getDefaultDbPath(),
     encrypt,
     decrypt
   }: OAuthDbConfig) {
-    this.db = SQLite.openDatabaseSync('default');
+    this.db = typeof dbPathOrDb === 'string' ? SQLite.openDatabaseSync(dbPathOrDb) : dbPathOrDb;
     this.encrypt = encrypt;
     this.decrypt = decrypt;
   }

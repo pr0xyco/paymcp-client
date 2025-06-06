@@ -1,25 +1,39 @@
 import * as oauth from 'oauth4webapi';
-import { URL } from 'url';
-import { FetchLike, OAuthGlobalDb, ClientCredentials, TokenData } from './types';
+import { URL } from 'react-native-url-polyfill';
+import { ClientCredentials, FetchLike, OAuthGlobalDb, TokenData } from './types';
+
+export interface OAuthGlobalClientConfig {
+  globalDb: OAuthGlobalDb;
+  callbackUrl?: string;
+  isPublic?: boolean;
+  sideChannelFetch?: FetchLike;
+  strict?: boolean;
+}
 
 export class OAuthGlobalClient {
   protected globalDb: OAuthGlobalDb;
   protected allowInsecureRequests = process.env.NODE_ENV === 'development';
   protected callbackUrl: string;
-  protected fetchFn: FetchLike;
+  protected sideChannelFetch: FetchLike;
   protected strict: boolean;
   // Whether this is a public client, which is incapable of keeping a client secret
   // safe, or a confidential client, which can.
   protected isPublic: boolean;
 
-  constructor(globalDb: OAuthGlobalDb, callbackUrl: string = 'http://localhost:3000/unused-dummy-global-callback', isPublic: boolean = false, fetchFn: FetchLike = fetch, strict: boolean = true) {
+  constructor({
+    globalDb,
+    callbackUrl = 'http://localhost:3000/unused-dummy-global-callback',
+    isPublic = false,
+    sideChannelFetch = fetch,
+    strict = true
+  }: OAuthGlobalClientConfig) {
     // Default values above are appropriate for a global client used directly. Subclasses should override these,
     // because things like the callbackUrl will actually be important for them
     this.globalDb = globalDb;
     this.callbackUrl = callbackUrl;
     this.isPublic = isPublic;
-    this.fetchFn = fetchFn;
-    this.strict = strict; 
+    this.sideChannelFetch = sideChannelFetch;
+    this.strict = strict;
   }
 
   static trimToPath = (url: string): string => {
@@ -57,7 +71,7 @@ export class OAuthGlobalClient {
       token,
       {
         additionalParameters,
-        [oauth.customFetch]: this.fetchFn,
+        [oauth.customFetch]: this.sideChannelFetch,
         [oauth.allowInsecureRequests]: process.env.NODE_ENV === 'development'
       }
     );
@@ -77,7 +91,7 @@ export class OAuthGlobalClient {
         token,
         { 
           additionalParameters, 
-          [oauth.customFetch]: this.fetchFn, 
+          [oauth.customFetch]: this.sideChannelFetch, 
           [oauth.allowInsecureRequests]: process.env.NODE_ENV === 'development'
         }
       );
@@ -106,7 +120,7 @@ export class OAuthGlobalClient {
       const resourceUrl = new URL(resourceServerUrl);
 
       const prmResponse = await oauth.resourceDiscoveryRequest(resourceUrl, {
-        [oauth.customFetch]: this.fetchFn,
+        [oauth.customFetch]: this.sideChannelFetch,
         [oauth.allowInsecureRequests]: this.allowInsecureRequests
       });
 
@@ -126,7 +140,7 @@ export class OAuthGlobalClient {
         // Don't use oauth4webapi for this, because these servers might be specifiying an issuer that is not
         // themselves (in order to use a separate AS by just hosting the OAuth metadata on the MCP server)
         //   This is against the OAuth spec, but some servers do it anyway
-        const rsAsResponse = await this.fetchFn(rsAsUrl);
+        const rsAsResponse = await this.sideChannelFetch(rsAsUrl);
         if (rsAsResponse.status === 200) {
           const rsAsBody = await rsAsResponse.json();
           authServer = rsAsBody.issuer;
@@ -143,11 +157,14 @@ export class OAuthGlobalClient {
       return res;
     } catch (error: any) {
       console.log(`Error fetching authorization server configuration: ${error}`);
+      console.log(error.stack);
+      console.trace();
       throw error;
     }
   }
 
   protected authorizationServerFromUrl = async (authServerUrl: URL): Promise<oauth.AuthorizationServer> => {
+    console.log('entering authorizationServerFromUrl');
     try {
       // Explicitly throw for a tricky edge case to trigger tests
       if (authServerUrl.toString().includes('/.well-known/oauth-protected-resource')) {
@@ -157,10 +174,11 @@ export class OAuthGlobalClient {
       // Now, get the authorization server metadata
       const response = await oauth.discoveryRequest(authServerUrl, {
         algorithm: 'oauth2',
-        [oauth.customFetch]: this.fetchFn,
+        [oauth.customFetch]: this.sideChannelFetch,
         [oauth.allowInsecureRequests]: this.allowInsecureRequests
       });
       const authorizationServer = await oauth.processDiscoveryResponse(authServerUrl, response);
+      console.log('authorizationServerFromUrl returning');
       return authorizationServer;
     } catch (error: any) {
       console.log(`Error fetching authorization server configuration: ${error}`);
@@ -209,7 +227,7 @@ export class OAuthGlobalClient {
         authorizationServer,
         clientMetadata,
         {
-          [oauth.customFetch]: this.fetchFn,
+          [oauth.customFetch]: this.sideChannelFetch,
           [oauth.allowInsecureRequests]: this.allowInsecureRequests
         }
       );

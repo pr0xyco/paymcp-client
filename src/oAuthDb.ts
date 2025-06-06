@@ -1,37 +1,44 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
-import { DEFAULT_ENCRYPTION_KEY_ENV_VAR, encrypt, decrypt } from './crypto-utils.js';
-import type { ClientCredentials, PKCEValues, AccessToken, OAuthDb } from './types';
+import * as SQLite from 'expo-sqlite';
+import type { AccessToken, ClientCredentials, OAuthDb, PKCEValues } from './types';
+
+export interface OAuthDbConfig {
+  dbPathOrDb?: string | SQLite.SQLiteDatabase;
+  encrypt: (data: string) => string;
+  decrypt: (data: string) => string;
+}
 
 export class SqliteOAuthDb implements OAuthDb {
-  private db: Database.Database;
+  private db: SQLite.SQLiteDatabase;
   private initialized = false;
-  private encryptionKey: string;
+  private encrypt: (data: string) => string;
+  private decrypt: (data: string) => string;
 
   static getDefaultDbPath(): string {
-    const dbDir = path.join(process.cwd(), 'db');
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
-    }
-    return path.join(dbDir, 'oauthClient.db');
+    // TODO: Test default db path on React Native and on Node
+
+    //const dbDir = path.join(process.cwd(), 'db');
+    //if (!fs.existsSync(dbDir)) {
+      //fs.mkdirSync(dbDir, { recursive: true });
+    //}
+    //return path.join(dbDir, 'oauthClient.db');
+    return 'db/oauthClient.db';
   }
 
-  constructor(dbPathOrDb: string | Database.Database = SqliteOAuthDb.getDefaultDbPath(), encryptionKey?: string) {
-    encryptionKey = encryptionKey || process.env[DEFAULT_ENCRYPTION_KEY_ENV_VAR];
-    if (!encryptionKey) {
-      throw new Error(`No encryptionKey provided and ${DEFAULT_ENCRYPTION_KEY_ENV_VAR} environment variable is not set`);
-    }
-    this.encryptionKey = encryptionKey;
-
-    this.db = typeof dbPathOrDb === 'string' ? new Database(dbPathOrDb) : dbPathOrDb;
+  constructor({
+    dbPathOrDb = SqliteOAuthDb.getDefaultDbPath(),
+    encrypt,
+    decrypt
+  }: OAuthDbConfig) {
+    this.db = typeof dbPathOrDb === 'string' ? SQLite.openDatabaseSync(dbPathOrDb) : dbPathOrDb;
+    this.encrypt = encrypt;
+    this.decrypt = decrypt;
   }
 
   ensureInitialized = async (): Promise<void> => {
     if (this.initialized) return;
 
     // Create tables
-    this.db.exec(`
+    await this.db.execAsync(`
       CREATE TABLE IF NOT EXISTS oauth_client_credentials (
         resource_url TEXT PRIMARY KEY,
         encrypted_client_id TEXT NOT NULL,
@@ -65,15 +72,20 @@ export class SqliteOAuthDb implements OAuthDb {
 
   getClientCredentials = async (resourceUrl: string): Promise<ClientCredentials | null> => {
     await this.ensureInitialized();
-    const row = this.db.prepare(
+    const preparedRow = await this.db.prepareAsync(
       'SELECT encrypted_client_id, encrypted_client_secret, redirect_uri FROM oauth_client_credentials WHERE resource_url = ?'
-    ).get(resourceUrl) as { encrypted_client_id: string; encrypted_client_secret: string; redirect_uri: string } | undefined;
-
-    return row ? {
-      clientId: decrypt(row.encrypted_client_id, this.encryptionKey),
-      clientSecret: decrypt(row.encrypted_client_secret, this.encryptionKey),
-      redirectUri: row.redirect_uri
-    } : null;
+    );
+    try {
+      const rowIterator = await preparedRow.executeAsync<{ encrypted_client_id: string; encrypted_client_secret: string; redirect_uri: string }>(resourceUrl);
+      const row = await rowIterator.getFirstAsync();
+      return row ? {
+        clientId: this.decrypt(row.encrypted_client_id),
+        clientSecret: this.decrypt(row.encrypted_client_secret),
+        redirectUri: row.redirect_uri
+      } : null;
+    } finally {
+      await preparedRow.finalizeAsync();
+    }
   }
 
   saveClientCredentials = async (
@@ -81,28 +93,39 @@ export class SqliteOAuthDb implements OAuthDb {
     credentials: ClientCredentials
   ): Promise<void> => {
     await this.ensureInitialized();
-    this.db.prepare(
+    const statement = await this.db.prepareAsync(
       'INSERT OR REPLACE INTO oauth_client_credentials (resource_url, encrypted_client_id, encrypted_client_secret, redirect_uri) VALUES (?, ?, ?, ?)'
-    ).run(
-      resourceUrl,
-      encrypt(credentials.clientId, this.encryptionKey),
-      encrypt(credentials.clientSecret, this.encryptionKey),
-      credentials.redirectUri
     );
+    try {
+      await statement.executeAsync(
+        resourceUrl,
+        this.encrypt(credentials.clientId),
+        this.encrypt(credentials.clientSecret),
+        credentials.redirectUri
+      );
+    } finally {
+      await statement.finalizeAsync();
+    }
   }
 
   getPKCEValues = async (userId: string, state: string): Promise<PKCEValues | null> => {
     await this.ensureInitialized();
-    const row = this.db.prepare(
+    const statement = await this.db.prepareAsync(
       'SELECT encrypted_code_verifier, encrypted_code_challenge, resource_url, url FROM oauth_pkce_values WHERE user_id = ? AND state = ?'
-    ).get(userId, state) as { encrypted_code_verifier: string; encrypted_code_challenge: string; resource_url: string; url: string } | undefined;
+    );
+    try {
+      const result = await statement.executeAsync<{ encrypted_code_verifier: string; encrypted_code_challenge: string; resource_url: string; url: string }>(userId, state);
+      const row = await result.getFirstAsync();
 
-    return row ? {
-      codeVerifier: decrypt(row.encrypted_code_verifier, this.encryptionKey),
-      codeChallenge: decrypt(row.encrypted_code_challenge, this.encryptionKey),
-      resourceUrl: row.resource_url,
-      url: row.url
-    } : null;
+      return row ? {
+        codeVerifier: this.decrypt(row.encrypted_code_verifier),
+        codeChallenge: this.decrypt(row.encrypted_code_challenge),
+        resourceUrl: row.resource_url,
+        url: row.url
+      } : null;
+    } finally {
+      await statement.finalizeAsync();
+    }
   }
 
   savePKCEValues = async (
@@ -111,32 +134,43 @@ export class SqliteOAuthDb implements OAuthDb {
     values: PKCEValues
   ): Promise<void> => {
     await this.ensureInitialized();
-    this.db.prepare(
+    const statement = await this.db.prepareAsync(
       'INSERT INTO oauth_pkce_values (user_id, state, encrypted_code_verifier, encrypted_code_challenge, resource_url, url) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(
-      userId,
-      state,
-      encrypt(values.codeVerifier, this.encryptionKey),
-      encrypt(values.codeChallenge, this.encryptionKey),
-      values.resourceUrl,
-      values.url
     );
+    try {
+      await statement.executeAsync(
+        userId,
+        state,
+        this.encrypt(values.codeVerifier),
+        this.encrypt(values.codeChallenge),
+        values.resourceUrl,
+        values.url
+      );
+    } finally {
+      await statement.finalizeAsync();
+    }
   }
 
   getAccessToken = async (userId: string, url: string): Promise<AccessToken | null> => {
     await this.ensureInitialized();
-    const row = this.db.prepare(
+    const statement = await this.db.prepareAsync(
       'SELECT resource_url, encrypted_access_token, encrypted_refresh_token, expires_at FROM oauth_access_tokens WHERE user_id = ? AND url = ?'
-    ).get(userId, url) as { resource_url: string; encrypted_access_token: string; encrypted_refresh_token: string | null; expires_at: string | null } | undefined;
+    );
+    try {
+      const result = await statement.executeAsync<{ resource_url: string; encrypted_access_token: string; encrypted_refresh_token: string | null; expires_at: string | null }>(userId, url);
+      const row = await result.getFirstAsync();
 
-    if (!row) return null;
+      if (!row) return null;
 
-    return {
-      accessToken: decrypt(row.encrypted_access_token, this.encryptionKey),
-      refreshToken: row.encrypted_refresh_token ? decrypt(row.encrypted_refresh_token, this.encryptionKey) : undefined,
-      expiresAt: row.expires_at ? parseInt(row.expires_at) : undefined,
-      resourceUrl: row.resource_url
-    };
+      return {
+        accessToken: this.decrypt(row.encrypted_access_token),
+        refreshToken: row.encrypted_refresh_token ? this.decrypt(row.encrypted_refresh_token) : undefined,
+        expiresAt: row.expires_at ? parseInt(row.expires_at) : undefined,
+        resourceUrl: row.resource_url
+      };
+    } finally {
+      await statement.finalizeAsync();
+    }
   }
 
   saveAccessToken = async (
@@ -145,21 +179,26 @@ export class SqliteOAuthDb implements OAuthDb {
     token: AccessToken
   ): Promise<void> => {
     await this.ensureInitialized();
-    this.db.prepare(
+    const statement = await this.db.prepareAsync(
       'INSERT OR REPLACE INTO oauth_access_tokens (user_id, url, resource_url, encrypted_access_token, encrypted_refresh_token, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(
-      userId,
-      url,
-      token.resourceUrl,
-      encrypt(token.accessToken, this.encryptionKey),
-      token.refreshToken ? encrypt(token.refreshToken, this.encryptionKey) : null,
-      token.expiresAt?.toString()
     );
+    try {
+      await statement.executeAsync(
+        userId,
+        url,
+        token.resourceUrl,
+        this.encrypt(token.accessToken),
+        token.refreshToken ? this.encrypt(token.refreshToken) : null,
+        token.expiresAt?.toString() ?? null
+      );
+    } finally {
+      await statement.finalizeAsync();
+    }
   }
 
   close = async (): Promise<void> => {
     try {
-      this.db.close();
+      await this.db.closeAsync();
     } catch (error) {
       // If database is already closed, just log and continue
       if (error && typeof error === 'object' && 'code' in error && error.code === 'SQLITE_MISUSE') {

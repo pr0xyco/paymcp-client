@@ -1,26 +1,52 @@
-import type { PaymentMaker, FetchLike, OAuthDb } from './types.js';
-import { OAuthClient, OAuthAuthenticationRequiredError } from './oAuth.js';
 import { BigNumber } from 'bignumber.js';
+import { OAuthAuthenticationRequiredError, OAuthClient } from './oAuth';
+import type { FetchLike, OAuthDb, PaymentMaker } from './types';
+
+export interface PayMcpClientConfig {
+  userId: string;
+  db: OAuthDb;
+  paymentMakers: {[key: string]: PaymentMaker};
+  fetchFn?: FetchLike;
+  sideChannelFetch?: FetchLike;
+  strict?: boolean;
+}
 
 export class PayMcpClient {
   protected oauthClient: OAuthClient;
   protected paymentMakers: Map<string, PaymentMaker>;
-  protected fetchFn: FetchLike;
+  protected sideChannelFetch: FetchLike;
 
-  constructor(userId: string, db: OAuthDb, isPublic: boolean, paymentMakers: {[key: string]: PaymentMaker}, fetchFn: FetchLike = fetch, strict: boolean = true) {
+  constructor({
+    userId,
+    db,
+    paymentMakers,
+    fetchFn = fetch,
+    sideChannelFetch = fetch,
+    strict = true
+  }: PayMcpClientConfig) {
     // PayMcpClient should never actually use the callback url - instead of redirecting the user to 
     // an authorization url which redirects back to the callback url, PayMcpClient posts the payment
     // directly to the authorization server, then does the token exchange itself
-    this.oauthClient = new OAuthClient(userId, db, 'http://localhost:3000/unused-dummy-paymcp-callback', isPublic, fetchFn, strict);
+    this.oauthClient = new OAuthClient({
+      userId,
+      db,
+      callbackUrl: 'http://localhost:3000/unused-dummy-paymcp-callback',
+      isPublic: false,
+      fetchFn,
+      sideChannelFetch,
+      strict
+    });
     this.paymentMakers = new Map(Object.entries(paymentMakers));
-    this.fetchFn = fetchFn;
+    this.sideChannelFetch = sideChannelFetch;
   }
 
   protected handleAuthFailure = async (oauthError: OAuthAuthenticationRequiredError): Promise<string> => {
+    console.log('entering handleAuthFailure');
     const authorizationUrl = await this.oauthClient.makeAuthorizationUrl(
       oauthError.url, 
       oauthError.resourceServerUrl
     );
+    console.log('authorizationUrl', authorizationUrl);
 
     if (authorizationUrl.searchParams.get('payMcp') !== '1') {
       console.log(`PayMCP: authorization url was not a PayMcp url, aborting: ${authorizationUrl}`);
@@ -63,7 +89,8 @@ export class PayMcpClient {
       throw oauthError;
     }
 
-    const paymentId = await paymentMaker.makePayment(amount, currency, destination);
+    console.log('paymentmaker');
+    const paymentId = await paymentMaker.makePayment(amount, currency, destination, authorizationUrl.searchParams.get('resourceName') || undefined);
     console.log(`PayMCP: made payment of ${amount} ${currency} on ${requestedNetwork}: ${paymentId}`);
 
     const signature = await paymentMaker.signBySource(codeChallenge, paymentId);
@@ -75,20 +102,41 @@ export class PayMcpClient {
 
     // Make a fetch call to the authorization URL with the payment ID
     console.log(`PayMCP: fetching authorization URL ${authorizationUrl.toString()} with auth token ${authToken}`);
-    const response = await this.fetchFn(authorizationUrl.toString(), {
+    // redirect=false is a hack
+    // The OAuth spec calls for the authorization url to return with a redirect, but fetch
+    // on mobile will automatically follow the redirect (it doesn't support the redirect=manual option)
+    // We want the redirect URL so we can extract the code from it, not the contents of the 
+    // redirect URL (which might not even exist for agentic paymcp clients)
+    //   So paymcp servers are set up to instead return a 200 with the redirect URL in the body
+    // if we pass redirect=false.
+    const response = await this.sideChannelFetch(authorizationUrl.toString()+'&redirect=false', {
       method: 'GET',
       redirect: 'manual',
       headers: {
         'Authorization': `Bearer ${authToken}`
       }
     });
-
-    // Check if we got a redirect response (301, 302, etc.)
+    // Check if we got a redirect response (301, 302, etc.) in case the server follows 
+    // the OAuth spec
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('Location');
       if (location) {
-        console.log(`PayMCP: got authorization code response - redirect to ${location}`);
+        console.log(`PayMCP: got redirect authorization code response - redirect to ${location}`);
         return location;
+      } else {
+        console.log(`PayMCP: got redirect authorization code response, but no redirect URL in Location header`);
+      }
+    }
+    // Handle the non-standard paymcp redirect=false hack
+    if (response.ok) {
+      // Handle the redirect manually
+      const body = await response.json();
+      const redirectUrl = body.redirect;
+      if (redirectUrl) {
+        console.log(`PayMCP: got response.ok authorization code response - redirect to ${redirectUrl}`);
+        return redirectUrl;
+      } else {
+        console.log(`PayMCP: got authorization code response with response.ok, but no redirect URL in body`);
       }
     }
 
@@ -101,15 +149,18 @@ export class PayMcpClient {
       // Try to fetch the resource
       return await this.oauthClient.fetch(url, init);
     } catch (error: unknown) {
+      console.log('fetch error', error);
       // If we get an OAuth authentication required error, handle it
       if (error instanceof OAuthAuthenticationRequiredError) {
         console.log(`OAuth authentication required - PayMCP client starting payment flow for resource metadata ${error.resourceServerUrl}`);
         // Get the redirect URL for authentication
         const redirectUrl = await this.handleAuthFailure(error);
-        
+        console.log('redirectUrl', redirectUrl);
+
         // Handle the OAuth callback
         await this.oauthClient.handleCallback(redirectUrl);
-        
+        console.log('handleCallback done');
+
         // Retry the request once - we should be auth'd now
         return await this.oauthClient.fetch(url, init);
       }

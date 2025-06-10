@@ -208,4 +208,154 @@ describe('requireOAuthAuthUser', () => {
     expect(introspectCalls[1]).toBeDefined();
     expect((introspectCalls[1].args[1] as any).headers['authorization']).toEqual(`Basic ${encodedNewCreds}`);
   });
-}); 
+
+  it('should pass charge parameter in introspection call when opPrices is provided', async () => {
+    const req = httpMocks.createRequest({ 
+      headers: { authorization: `Bearer test-access-token` },
+      path: '/mcp/message',
+      body: {
+        method: 'tools/call',
+        params: {
+          name: 'my_tool'
+        }
+      }
+    });
+    const res = httpMocks.createResponse();
+    const f = fetchMock.createInstance();
+    mockResourceServer(f, 'https://example.com', '/mcp');
+    mockAuthorizationServer(f, 'https://paymcp.com')
+      .modifyRoute('https://paymcp.com/introspect', {method: 'post', response: {body: {active: true, sub: 'test-user'}}});
+    const client = new OAuthClient("bdj", new SqliteOAuthDb(':memory:'), 'https://paymcp.com/callback', false, f.fetchHandler);
+
+    const opPrices = { 'tools/call': 0.01 };
+    const fn = requireOAuthUser('https://paymcp.com', client, opPrices);
+    const user = await fn(req, res);
+    
+    expect(user).toBe('test-user');
+    expect(res.statusCode).toEqual(200);
+    
+    const introspectCall = f.callHistory.lastCall('https://paymcp.com/introspect');
+    expect(introspectCall).toBeDefined();
+    
+    // Check that the charge parameter was included in the request body
+    const requestBody = (introspectCall?.args[1] as any).body;
+    const params = new URLSearchParams(requestBody);
+    expect(params.get('charge')).toBe('0.01');
+  });
+
+  it('should only match tools/call prefix as special case', async () => {
+    const req = httpMocks.createRequest({ 
+      headers: { authorization: `Bearer test-access-token` },
+      path: '/mcp/message',
+      body: {
+        method: 'tools/call',
+        params: {
+          name: 'my_tool'
+        }
+      }
+    });
+    const res = httpMocks.createResponse();
+    const f = fetchMock.createInstance();
+    mockResourceServer(f, 'https://example.com', '/mcp');
+    mockAuthorizationServer(f, 'https://paymcp.com')
+      .modifyRoute('https://paymcp.com/introspect', {method: 'post', response: {body: {active: true, sub: 'test-user'}}});
+    const client = new OAuthClient("bdj", new SqliteOAuthDb(':memory:'), 'https://paymcp.com/callback', false, f.fetchHandler);
+
+    // 'tools/call:my' should not match 'tools/call:my_tool', only 'tools/call' should
+    const opPrices = { 
+      'tools/call': 0.01,
+      'tools/call:my': 0.02 
+    };
+    const fn = requireOAuthUser('https://paymcp.com', client, opPrices);
+    
+    // Should use 'tools/call' price, ignoring 'tools/call:my'
+    const user = await fn(req, res);
+    expect(user).toBe('test-user');
+    expect(res.statusCode).toEqual(200);
+    
+    const introspectCall = f.callHistory.lastCall('https://paymcp.com/introspect');
+    expect(introspectCall).toBeDefined();
+    
+    const requestBody = (introspectCall?.args[1] as any).body;
+    const params = new URLSearchParams(requestBody);
+    expect(params.get('charge')).toBe('0.01');
+  });
+
+  it('should use exact match when multiple price keys match', async () => {
+    const req = httpMocks.createRequest({ 
+      headers: { authorization: `Bearer test-access-token` },
+      path: '/mcp/message',
+      body: {
+        method: 'tools/call',
+        params: {
+          name: 'my_tool'
+        }
+      }
+    });
+    const res = httpMocks.createResponse();
+    const f = fetchMock.createInstance();
+    mockResourceServer(f, 'https://example.com', '/mcp');
+    mockAuthorizationServer(f, 'https://paymcp.com')
+      .modifyRoute('https://paymcp.com/introspect', {method: 'post', response: {body: {active: true, sub: 'test-user'}}});
+    const client = new OAuthClient("bdj", new SqliteOAuthDb(':memory:'), 'https://paymcp.com/callback', false, f.fetchHandler);
+
+    // Multiple keys, but one is exact
+    const opPrices = { 
+      'tools/call': 0.01,
+      'tools/call:my': 0.02,
+      'tools/call:my_tool': 0.03  // exact match
+    };
+    const fn = requireOAuthUser('https://paymcp.com', client, opPrices);
+    const user = await fn(req, res);
+    
+    expect(user).toBe('test-user');
+    expect(res.statusCode).toEqual(200);
+    
+    const introspectCall = f.callHistory.lastCall('https://paymcp.com/introspect');
+    expect(introspectCall).toBeDefined();
+    
+    // Should use the exact match price
+    const requestBody = (introspectCall?.args[1] as any).body;
+    const params = new URLSearchParams(requestBody);
+    expect(params.get('charge')).toBe('0.03');
+  });
+
+  it('should not match arbitrary substrings for non-tools/call operations', async () => {
+    const req = httpMocks.createRequest({ 
+      headers: { authorization: `Bearer test-access-token` },
+      path: '/mcp/message',
+      body: {
+        method: 'resources/read',
+        params: {
+          name: 'my_resource'
+        }
+      }
+    });
+    const res = httpMocks.createResponse();
+    const f = fetchMock.createInstance();
+    mockResourceServer(f, 'https://example.com', '/mcp');
+    mockAuthorizationServer(f, 'https://paymcp.com')
+      .modifyRoute('https://paymcp.com/introspect', {method: 'post', response: {body: {active: true, sub: 'test-user'}}});
+    const client = new OAuthClient("bdj", new SqliteOAuthDb(':memory:'), 'https://paymcp.com/callback', false, f.fetchHandler);
+
+    // 'resources/read' should NOT match 'resources/read:my_resource' 
+    // (only 'tools/call' gets special prefix matching)
+    const opPrices = { 
+      'resources/read': 0.05
+    };
+    const fn = requireOAuthUser('https://paymcp.com', client, opPrices);
+    const user = await fn(req, res);
+    
+    expect(user).toBe('test-user');
+    expect(res.statusCode).toEqual(200);
+    
+    const introspectCall = f.callHistory.lastCall('https://paymcp.com/introspect');
+    expect(introspectCall).toBeDefined();
+    
+    // Should charge 0 because no match (not a tools/call operation)
+    const requestBody = (introspectCall?.args[1] as any).body;
+    const params = new URLSearchParams(requestBody);
+    expect(params.get('charge')).toBe('0');
+  });
+});
+ 

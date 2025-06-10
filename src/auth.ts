@@ -19,6 +19,21 @@ function getOp(req: Request): string {
   }
 }
 
+function getChargeForOperation(op: string, opPrices: {[key:string]: number}): number {
+  // Check for exact match first
+  if (opPrices[op] !== undefined) {
+    return opPrices[op];
+  }
+  
+  // Special case: 'tools/call' matches any 'tools/call:*' operation
+  if (op.startsWith('tools/call:') && opPrices['tools/call'] !== undefined) {
+    return opPrices['tools/call'];
+  }
+  
+  // No matches, default to 0
+  return 0;
+}
+
 // opPrices is experimental: The names of tools that will be charged for if PayMcp is used. 
 // If not provided, all tools will be charged at the amount specified in the authorizationServerUrl's amount field
 // If any are provided, all unlisted tools will be charged at 0
@@ -61,7 +76,9 @@ export function requireOAuthUser(authorizationServerUrl: string, oauthClient: OA
         // has to be reflected in /.well-known/oauth-protected-resource, (which is annoying but possible),
         // AS WELL as in the AS's /.well-known/oauth-authorization-server, (which would require the AS to 
         // make a decision for all clients about whether they have to send an amount parameter or not).
-        additionalParameters = { charge: opPrices[op] || 0 };
+        
+        const charge = getChargeForOperation(op, opPrices);
+        additionalParameters = { charge };
       }
       console.log('[auth] Introspecting token for op:', op, 'with additional parameters:', additionalParameters);
       const introspectionResult = await oauthClient.introspectToken(authorizationServerUrl, token, additionalParameters);

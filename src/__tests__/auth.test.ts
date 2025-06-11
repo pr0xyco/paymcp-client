@@ -211,6 +211,7 @@ describe('requireOAuthAuthUser', () => {
 
   it('should pass charge parameter in introspection call when opPrices is provided', async () => {
     const req = httpMocks.createRequest({ 
+      method: 'POST',
       headers: { authorization: `Bearer test-access-token` },
       path: '/mcp/message',
       body: {
@@ -245,6 +246,7 @@ describe('requireOAuthAuthUser', () => {
 
   it('should only match tools/call prefix as special case', async () => {
     const req = httpMocks.createRequest({ 
+      method: 'POST',
       headers: { authorization: `Bearer test-access-token` },
       path: '/mcp/message',
       body: {
@@ -283,6 +285,7 @@ describe('requireOAuthAuthUser', () => {
 
   it('should use exact match when multiple price keys match', async () => {
     const req = httpMocks.createRequest({ 
+      method: 'POST',
       headers: { authorization: `Bearer test-access-token` },
       path: '/mcp/message',
       body: {
@@ -322,6 +325,7 @@ describe('requireOAuthAuthUser', () => {
 
   it('should not match arbitrary substrings for non-tools/call operations', async () => {
     const req = httpMocks.createRequest({ 
+      method: 'POST',
       headers: { authorization: `Bearer test-access-token` },
       path: '/mcp/message',
       body: {
@@ -356,6 +360,41 @@ describe('requireOAuthAuthUser', () => {
     const requestBody = (introspectCall?.args[1] as any).body;
     const params = new URLSearchParams(requestBody);
     expect(params.get('charge')).toBe('0');
+  });
+
+  it('should apply pricing for tools/call when using HTTP endpoint rather than SSE one (/mcp ,not /mcp/message)', async () => {
+    const req = httpMocks.createRequest({ 
+      method: 'POST',
+      headers: { authorization: `Bearer test-access-token` },
+      path: '/mcp',  // Not /mcp/message
+      body: {
+        method: 'tools/call',
+        params: {
+          name: 'my_tool'
+        }
+      }
+    });
+    const res = httpMocks.createResponse();
+    const f = fetchMock.createInstance();
+    mockResourceServer(f, 'https://example.com', '/mcp');
+    mockAuthorizationServer(f, 'https://paymcp.com')
+      .modifyRoute('https://paymcp.com/introspect', {method: 'post', response: {body: {active: true, sub: 'test-user'}}});
+    const client = new OAuthClient("bdj", new SqliteOAuthDb(':memory:'), 'https://paymcp.com/callback', false, f.fetchHandler);
+
+    const opPrices = { 'tools/call': 0.01 };
+    const fn = requireOAuthUser('https://paymcp.com', client, opPrices);
+    const user = await fn(req, res);
+    
+    expect(user).toBe('test-user');
+    expect(res.statusCode).toEqual(200);
+    
+    const introspectCall = f.callHistory.lastCall('https://paymcp.com/introspect');
+    expect(introspectCall).toBeDefined();
+    
+    // Should still charge for tools/call even on /mcp path
+    const requestBody = (introspectCall?.args[1] as any).body;
+    const params = new URLSearchParams(requestBody);
+    expect(params.get('charge')).toBe('0.01');
   });
 });
  

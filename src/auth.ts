@@ -2,8 +2,8 @@ import { Request, Response } from "express";
 import { OAuthGlobalClient } from "./oAuthGlobalClient.js";
 
 function getOp(req: Request): string {
-  const isMessageEndpoint = req.path.endsWith('/message');
-  if (!isMessageEndpoint){ 
+  const isMessage = req.method.toLowerCase() === 'post';
+  if (!isMessage) {
     return 'NON_MCP';
   } else {
     // Get the operation from the jsonRpc message

@@ -43,7 +43,7 @@ function getChargeForOperation(op: string, opPrices: {[key:string]: number}): nu
 //   to use the same authorization server
 export function requireOAuthUser(authorizationServerUrl: string, oauthClient: OAuthGlobalClient, opPrices?: {[key:string]: number}): (req: Request, res: Response) => Promise<string | undefined> {
   return async (req: Request, res: Response): Promise<string | undefined> => {
-    const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
+    const protocol = req.protocol;
     const protectedResourceMetadataUrl = `${protocol}://${req.host}/.well-known/oauth-protected-resource${req.path}`;
 
     // Extract the Bearer token from the Authorization header

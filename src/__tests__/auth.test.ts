@@ -39,6 +39,25 @@ describe('requireOAuthAuthUser', () => {
     expect(res._getHeaders()['www-authenticate']).toEqual('Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"');
   });
 
+  it('should use the same protocol as the request for the Protected Resource Metadata URL', async () => {
+    const req = httpMocks.createRequest({
+      host: 'example.com',
+      protocol: 'http'
+    });
+    const res = httpMocks.createResponse();
+    const f = fetchMock.createInstance();
+    mockAuthorizationServer(f, 'https://paymcp.com');
+    const client = new OAuthClient("bdj", new SqliteOAuthDb(':memory:'), 'https://paymcp.com/callback', false, f.fetchHandler);
+
+    const fn = requireOAuthUser('https://paymcp.com', client);
+    const user = await fn(req, res);
+    expect(user).toBeUndefined();
+    expect(res.statusCode).toEqual(401);
+    expect(res._getData().toString()).toContain("No token provided");
+    // Intended to be http just like the req
+    expect(res._getHeaders()['www-authenticate']).toEqual('Bearer resource_metadata="http://example.com/.well-known/oauth-protected-resource"');
+  });
+
   it('should set Protected Resource Metadata URL to path matching the request path', async () => {
     const req = httpMocks.createRequest({ 
       path: '/mypath',
